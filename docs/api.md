@@ -37,6 +37,15 @@ Crée une playlist depuis l'app : `{ mac, key, name, type, url, username?, passw
 ```
 `app_status = "maintenance"` bloque l'app ; `min_version` supérieure à la version installée impose une mise à jour.
 
+### `GET /featured?mac=…&key=…&mode=curated|popular|tmdb&lang=fr-FR`
+Contenu du carrousel « À la une ». `curated` = sélection admin (`featured_items`), `popular` = titres les plus regardés sur 7 jours (`popular_titles()`), `tmdb` = tendances TMDB de la semaine. Réponse `{ mode, items: [{ id, kind: movie|tv|live|custom, tmdb_id, title, subtitle, overview, year, poster_url, backdrop_url, link_kind, link_query, require_match }] }`. La correspondance avec les playlists se fait **sur l'appareil** (titre normalisé + année) : le serveur ne voit jamais leur contenu.
+
+### `GET /tmdb?action=search|trending|details&type=movie|tv&q=…&id=…&lang=…`
+Proxy TMDB (la clé reste côté serveur). Authentification : appareil (`mac`/`key`) **ou** administrateur (`x-admin-token: <JWT Supabase>`). Renvoie `503` si `TMDB_API_KEY` n'est pas configurée.
+
+### `POST /watch-events`
+`{ mac, key, kind: movie|tv|live, title_key, title, year?, tmdb_id? }` → `{ ok }`. Statistique anonyme (aucune MAC ni URL de playlist stockée, seulement l'identifiant interne de l'appareil pour dédoublonner), un événement max par appareil/titre/heure, purge après 30 jours.
+
 ## Portail utilisateur (web)
 
 ### `POST /portal-login`
@@ -54,7 +63,7 @@ Crée une playlist depuis l'app : `{ mac, key, name, type, url, username?, passw
 Validation : `type` ∈ `m3u | xtream` ; `url` en `http(s)://` ; `username`/`password` obligatoires pour Xtream ; `pin_code` de 4 à 8 chiffres si `is_protected`. Maximum 20 playlists par appareil.
 
 ## Administration
-Le portail `/admin` utilise Supabase Auth (e-mail / mot de passe) et accède directement aux tables via RLS : seuls les profils `role = 'admin'` (table `profiles`) peuvent lire/écrire `devices`, `playlists` et `app_config`. La vue `devices_with_status` expose le statut calculé par `device_status()`.
+Le portail `/admin` utilise Supabase Auth (e-mail / mot de passe) et accède directement aux tables via RLS : seuls les profils `role = 'admin'` (table `profiles`) peuvent lire/écrire `devices`, `playlists`, `app_config` et `featured_items`. La vue `devices_with_status` expose le statut calculé par `device_status()`. La page `/admin/featured` gère le carrousel (recherche TMDB via la fonction `tmdb`, bannières personnalisées avec lien chaîne/film/série/URL, ordre, activation).
 
 ## Statut d'un appareil
 - **Essai** : `now() < trial_started_at + trial_days` et non activé.
@@ -63,5 +72,6 @@ Le portail `/admin` utilise Supabase Auth (e-mail / mot de passe) et accède dir
 
 ## Secrets
 - `PORTAL_TOKEN_SECRET` (secret Edge Functions) : clé de signature des jetons portail. À défaut, la clé service role est utilisée.
+- `TMDB_API_KEY` (secret Edge Functions) : clé API v3 TMDB pour `tmdb` et les modes `tmdb`/`popular` de `featured`. Dashboard Supabase → Edge Functions → Secrets, ou `supabase secrets set TMDB_API_KEY=…`. Sans elle, l'app retombe sur le contenu local et le portail affiche « Clé TMDB non configurée ».
 - Le portail Next.js a besoin de `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et éventuellement `SUPABASE_FUNCTIONS_URL`.
 - L'app Flutter se configure avec `--dart-define=API_BASE_URL=… --dart-define=API_ANON_KEY=… --dart-define=PORTAL_URL=…`.

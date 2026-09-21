@@ -374,16 +374,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get theme => 'Theme';
 
   @override
-  String get themeSystem => 'System';
-
-  @override
   String get themeDark => 'Dark';
 
   @override
-  String get themeLight => 'Light';
+  String get themeAmoled => 'AMOLED black';
 
   @override
-  String get themeAmoled => 'AMOLED black';
+  String get languageSystem => 'System';
 
   @override
   String get parentalControl => 'Parental control';
@@ -611,4 +608,86 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get maintenance =>
       'The service is under maintenance. Please try again later.';
+
+  @override
+  String get featured => 'Featured';
+
+  @override
+  String get recentlyAddedMovies => 'New movies';
+
+  @override
+  String get recentlyAddedSeries => 'New series';
+
+  @override
+  String get moreInfo => 'More info';
+
+  @override
+  String get nowLabel => 'Now';
+
+  @override
+  String get nextLabel => 'Next';
+
+  @override
+  String remaining(String time) {
+    return '$time left';
+  }
+
+  @override
+  String episodeNumber(int n) {
+    return 'Episode $n';
+  }
+
+  @override
+  String get appearance => 'Appearance';
+
+  @override
+  String get playback => 'Playback';
+
+  @override
+  String get account => 'Account';
+
+  @override
+  String get episodesTitle => 'Episodes';
+
+  @override
+  String get featuredSource => 'Featured content';
+
+  @override
+  String get featuredCurated => 'Editors\' picks';
+
+  @override
+  String get featuredPopular => 'Most watched right now';
+
+  @override
+  String get featuredTmdb => 'Trending on TMDB';
+
+  @override
+  String get watchNow => 'Watch';
+
+  @override
+  String get openLink => 'Open';
+
+  @override
+  String get eventNow => 'Now';
+
+  @override
+  String todayAt(String time) {
+    return 'Today at $time';
+  }
+
+  @override
+  String tomorrowAt(String time) {
+    return 'Tomorrow at $time';
+  }
+
+  @override
+  String seasonsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count seasons',
+      one: '1 season',
+    );
+    return '$_temp0';
+  }
 }

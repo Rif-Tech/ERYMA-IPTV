@@ -10,6 +10,8 @@ import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/pin_dialog.dart';
 import '../content/content_providers.dart';
+import '../home/featured_provider.dart';
+import '../movies/movie_detail_screen.dart' show movieInfoProvider;
 import '../playlists/playlists_provider.dart';
 
 /// Resolver bound to the active playlist and current settings.
@@ -46,6 +48,7 @@ Future<void> playChannels(BuildContext context, WidgetRef ref, List<Channel> cha
     if (i == index) startIndex = playable.length;
     playable.add(c);
   }
+  reportWatch(ref, kind: 'live', title: channels[index].name);
   await openPlayer(context, PlaybackRequest(items: playable.map(resolver.channel).toList(), startIndex: startIndex));
 }
 
@@ -60,6 +63,9 @@ Future<void> playMovie(BuildContext context, WidgetRef ref, Movie movie, {bool r
     }
   }
   if (!context.mounted) return;
+  // Panel info is only used when already cached; never delay playback for it.
+  final tmdb = int.tryParse(ref.read(movieInfoProvider(movie.streamId)).value?.tmdbId ?? '');
+  reportWatch(ref, kind: 'movie', title: movie.name, year: movie.year, tmdbId: tmdb);
   await openPlayer(context, PlaybackRequest(items: [resolver.movie(movie)], startPositionMs: position));
 }
 
@@ -81,6 +87,7 @@ Future<void> playEpisodes(
     }
   }
   if (!context.mounted) return;
+  reportWatch(ref, kind: 'tv', title: seriesName);
   await openPlayer(
     context,
     PlaybackRequest(

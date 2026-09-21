@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app/responsive.dart';
+import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/player/playback.dart';
 import '../../core/settings/settings.dart';
@@ -385,7 +386,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         backgroundColor: settings.subtitleBackground ? Colors.black87 : Colors.transparent,
                         shadows: settings.subtitleBackground ? null : const [Shadow(blurRadius: 6, color: Colors.black)],
                       ),
-                      padding: const EdgeInsets.all(24),
+                      // Lift subtitles above the transport controls while the overlay is visible.
+                      padding: EdgeInsets.fromLTRB(24, 24, 24, _overlay && !_isLive ? 150 : 40),
                     ),
                   ),
                 ),
@@ -407,40 +409,53 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Widget _buildOverlay(BuildContext context, AppLocalizations l10n, AppSettings settings) {
-    final theme = Theme.of(context);
+    final text = Theme.of(context).textTheme;
     final item = _item;
     final res = _resolution;
+    final gutter = MediaQuery.sizeOf(context).width >= 900 ? 48.0 : 16.0;
+    final top = MediaQuery.paddingOf(context).top;
+    final bottom = MediaQuery.paddingOf(context).bottom;
     return Column(
       children: [
         Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black87, Colors.transparent]),
+            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xCC000000), Colors.transparent]),
           ),
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          padding: EdgeInsets.fromLTRB(gutter - 8, top + 12, gutter, 40),
           child: Row(
             children: [
-              IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => context.pop()),
+              IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
+              const SizedBox(width: 8),
               if (item.logo != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: SizedBox(width: 48, height: 48, child: AppImage(item.logo, fit: BoxFit.contain, icon: Icons.tv)),
+                Container(
+                  width: 64,
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 14),
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(color: const Color(0x33FFFFFF), borderRadius: BorderRadius.circular(8)),
+                  child: AppImage(item.logo, fit: BoxFit.contain, icon: Icons.tv, decodeWidth: 200),
                 ),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(item.title, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(item.title, style: text.titleLarge, maxLines: 1, overflow: TextOverflow.ellipsis),
                     if (item.subtitle != null)
-                      Text(item.subtitle!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(item.subtitle!, style: text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
-              if (res != null) _Badge(res),
+              if (_isLive) const Padding(padding: EdgeInsets.only(left: 8), child: MetaBadge('LIVE', filled: true)),
+              if (res != null) Padding(padding: const EdgeInsets.only(left: 8), child: MetaBadge(res)),
               if (_isLive)
-                IconButton(
-                  tooltip: l10n.channelList,
-                  icon: const Icon(Icons.list, color: Colors.white),
-                  onPressed: () => setState(() => _showList = true),
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: IconButton(
+                    tooltip: l10n.channelList,
+                    icon: const Icon(Icons.view_list_rounded),
+                    onPressed: () => setState(() => _showList = true),
+                  ),
                 ),
             ],
           ),
@@ -448,9 +463,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         const Spacer(),
         Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
+            gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Color(0xE6000000), Colors.transparent]),
           ),
-          padding: const EdgeInsets.fromLTRB(16, 32, 16, 12),
+          padding: EdgeInsets.fromLTRB(gutter, 48, gutter, 16 + bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -469,70 +484,101 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     _commitSeek();
                   },
                 ),
+              const SizedBox(height: 10),
               Row(
                 children: [
-                  IconButton(
-                    tooltip: _isLive ? l10n.previousChannel : null,
-                    icon: const Icon(Icons.skip_previous, color: Colors.white),
-                    onPressed: widget.request.items.length > 1 ? _previous : null,
-                  ),
-                  if (!_isLive)
-                    IconButton(icon: const Icon(Icons.replay, color: Colors.white), onPressed: () => _seekBy(-_seekStep)),
-                  IconButton(
-                    autofocus: true,
-                    iconSize: 40,
-                    icon: Icon(_playing ? Icons.pause_circle : Icons.play_circle, color: Colors.white),
-                    onPressed: _togglePlay,
-                  ),
-                  if (!_isLive)
-                    IconButton(icon: const Icon(Icons.forward, color: Colors.white), onPressed: () => _seekBy(_seekStep)),
-                  IconButton(
-                    tooltip: _isLive ? l10n.nextChannel : l10n.nextEpisode,
-                    icon: const Icon(Icons.skip_next, color: Colors.white),
-                    onPressed: widget.request.items.length > 1 ? _next : null,
-                  ),
-                  const Spacer(),
-                  if (res != null && !_isLive) Padding(padding: const EdgeInsets.only(right: 8), child: _Badge(res)),
-                  if (_tracks.audio.length > 2)
-                    _TrackButton<AudioTrack>(
-                      icon: Icons.audiotrack,
-                      tooltip: l10n.audioTrack,
-                      tracks: _tracks.audio.where((t) => t.id != 'auto').toList(),
-                      current: _track.audio,
-                      label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
-                      onSelected: (t) {
-                        _player.setAudioTrack(t);
-                        _showOverlay();
-                      },
+                  // Left cluster keeps the row balanced with the right-hand tools.
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: !_isLive
+                          ? ValueListenableBuilder<Duration>(
+                              valueListenable: _position,
+                              builder: (_, pos, _) => Text(formatDuration(pos), style: text.labelLarge),
+                            )
+                          : const SizedBox.shrink(),
                     ),
-                  if (_tracks.subtitle.length > 1)
-                    _TrackButton<SubtitleTrack>(
-                      icon: Icons.subtitles,
-                      tooltip: l10n.subtitleTrack,
-                      tracks: _tracks.subtitle.where((t) => t.id != 'auto').toList(),
-                      current: _track.subtitle,
-                      label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
-                      onSelected: (t) {
-                        _player.setSubtitleTrack(t);
-                        _showOverlay();
-                      },
+                  ),
+                  _ControlPill(
+                    children: [
+                      IconButton(
+                        tooltip: _isLive ? l10n.previousChannel : null,
+                        icon: const Icon(Icons.skip_previous_rounded),
+                        onPressed: widget.request.items.length > 1 ? _previous : null,
+                      ),
+                      if (!_isLive) IconButton(icon: const Icon(Icons.replay_rounded), onPressed: () => _seekBy(-_seekStep)),
+                      IconButton(
+                        autofocus: true,
+                        iconSize: 34,
+                        icon: Icon(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+                        onPressed: _togglePlay,
+                      ),
+                      if (!_isLive) IconButton(icon: const Icon(Icons.forward_rounded), onPressed: () => _seekBy(_seekStep)),
+                      IconButton(
+                        tooltip: _isLive ? l10n.nextChannel : l10n.nextEpisode,
+                        icon: const Icon(Icons.skip_next_rounded),
+                        onPressed: widget.request.items.length > 1 ? _next : null,
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (!_isLive)
+                          ValueListenableBuilder<Duration>(
+                            valueListenable: _duration,
+                            builder: (_, dur, _) => ValueListenableBuilder<Duration>(
+                              valueListenable: _position,
+                              builder: (_, pos, _) => Padding(
+                                padding: const EdgeInsets.only(right: 12),
+                                child: Text(dur > pos ? '−${formatDuration(dur - pos)}' : formatDuration(dur), style: text.labelLarge),
+                              ),
+                            ),
+                          ),
+                        if (_tracks.audio.length > 2)
+                          _TrackButton<AudioTrack>(
+                            icon: Icons.audiotrack_rounded,
+                            tooltip: l10n.audioTrack,
+                            tracks: _tracks.audio.where((t) => t.id != 'auto').toList(),
+                            current: _track.audio,
+                            label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                            onSelected: (t) {
+                              _player.setAudioTrack(t);
+                              _showOverlay();
+                            },
+                          ),
+                        if (_tracks.subtitle.length > 1)
+                          _TrackButton<SubtitleTrack>(
+                            icon: Icons.subtitles_rounded,
+                            tooltip: l10n.subtitleTrack,
+                            tracks: _tracks.subtitle.where((t) => t.id != 'auto').toList(),
+                            current: _track.subtitle,
+                            label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                            onSelected: (t) {
+                              _player.setSubtitleTrack(t);
+                              _showOverlay();
+                            },
+                          ),
+                        if (!_isLive)
+                          PopupMenuButton<double>(
+                            tooltip: l10n.playbackSpeed,
+                            onSelected: (r) => _player.setRate(r),
+                            itemBuilder: (_) => [for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]) PopupMenuItem(value: r, child: Text('${r}x'))],
+                            child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('${_rate}x', style: text.labelLarge)),
+                          ),
+                        IconButton(
+                          tooltip: l10n.videoFit,
+                          icon: const Icon(Icons.aspect_ratio_rounded),
+                          onPressed: () {
+                            final values = VideoFit.values;
+                            final next = values[(values.indexOf(settings.videoFit) + 1) % values.length];
+                            ref.read(settingsProvider.notifier).setVideoFit(next);
+                            _showOverlay();
+                          },
+                        ),
+                      ],
                     ),
-                  if (!_isLive)
-                    PopupMenuButton<double>(
-                      tooltip: l10n.playbackSpeed,
-                      icon: Text('${_rate}x', style: const TextStyle(color: Colors.white)),
-                      onSelected: (r) => _player.setRate(r),
-                      itemBuilder: (_) => [for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]) PopupMenuItem(value: r, child: Text('${r}x'))],
-                    ),
-                  IconButton(
-                    tooltip: l10n.videoFit,
-                    icon: const Icon(Icons.aspect_ratio, color: Colors.white),
-                    onPressed: () {
-                      final values = VideoFit.values;
-                      final next = values[(values.indexOf(settings.videoFit) + 1) % values.length];
-                      ref.read(settingsProvider.notifier).setVideoFit(next);
-                      _showOverlay();
-                    },
                   ),
                 ],
               ),
@@ -545,33 +591,49 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Widget _buildList(BuildContext context) {
     final items = widget.request.items;
+    final l10n = AppLocalizations.of(context);
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        width: 360,
-        color: Colors.black.withValues(alpha: 0.85),
+        width: 380,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.centerLeft, end: Alignment.centerRight, colors: [Color(0xF20A0A0A), Color(0xD90A0A0A)]),
+        ),
+        padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
         child: FocusScope(
           autofocus: true,
-          child: ListView.builder(
-            padding: const EdgeInsets.all(8),
-            itemCount: items.length,
-            itemExtent: 64,
-            controller: ScrollController(initialScrollOffset: (_index * 64.0 - 128).clamp(0, double.infinity)),
-            itemBuilder: (context, i) {
-              final it = items[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: ChannelTile(
-                  name: it.title,
-                  logo: it.logo,
-                  dense: true,
-                  number: i + 1,
-                  selected: i == _index,
-                  autofocus: i == _index,
-                  onTap: () => _goTo(i),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                child: Text(l10n.channelList, style: Theme.of(context).textTheme.titleMedium),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                  itemCount: items.length,
+                  itemExtent: 64,
+                  addAutomaticKeepAlives: false,
+                  controller: ScrollController(initialScrollOffset: (_index * 64.0 - 128).clamp(0, double.infinity)),
+                  itemBuilder: (context, i) {
+                    final it = items[i];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: ChannelTile(
+                        name: it.title,
+                        logo: it.logo,
+                        dense: true,
+                        number: i + 1,
+                        selected: i == _index,
+                        autofocus: i == _index,
+                        onTap: () => _goTo(i),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+            ],
           ),
         ),
       ),
@@ -579,8 +641,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 }
 
-/// Progress slider driven by notifiers: repaints ~10×/s without rebuilding the whole player.
-class _ProgressBar extends StatelessWidget {
+/// Translucent rounded group holding the transport buttons.
+class _ControlPill extends StatelessWidget {
+  const _ControlPill({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: const Color(0x2EFFFFFF), borderRadius: BorderRadius.circular(999)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+}
+
+/// Thin scrubber (thickens while dragging) driven by notifiers: repaints ~10×/s without
+/// rebuilding the whole player.
+class _ProgressBar extends StatefulWidget {
   const _ProgressBar({required this.position, required this.duration, required this.onScrub, required this.onScrubEnd});
   final ValueNotifier<Duration> position;
   final ValueNotifier<Duration> duration;
@@ -588,32 +666,70 @@ class _ProgressBar extends StatelessWidget {
   final ValueChanged<Duration> onScrubEnd;
 
   @override
+  State<_ProgressBar> createState() => _ProgressBarState();
+}
+
+class _ProgressBarState extends State<_ProgressBar> {
+  bool _dragging = false;
+
+  Duration _at(double dx, double width) {
+    final total = widget.duration.value.inMilliseconds;
+    if (total <= 0) return Duration.zero;
+    return Duration(milliseconds: ((dx / width).clamp(0.0, 1.0) * total).round());
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Duration>(
-      valueListenable: duration,
-      builder: (context, dur, _) => ValueListenableBuilder<Duration>(
-        valueListenable: position,
-        builder: (context, pos, _) {
-          final total = dur.inMilliseconds;
-          final value = pos.inMilliseconds.clamp(0, total > 0 ? total : 1).toDouble();
-          return Row(
-            children: [
-              Text(formatDuration(pos), style: const TextStyle(color: Colors.white)),
-              Expanded(
-                child: Slider(
-                  value: total > 0 ? value : 0,
-                  max: total > 0 ? total.toDouble() : 1,
-                  onChanged: total > 0 ? (v) => onScrub(Duration(milliseconds: v.round())) : null,
-                  onChangeEnd: total > 0 ? (v) => onScrubEnd(Duration(milliseconds: v.round())) : null,
-                ),
-              ),
-              Text(formatDuration(dur), style: const TextStyle(color: Colors.white)),
-            ],
-          );
+    return LayoutBuilder(
+      builder: (context, c) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (d) => setState(() => _dragging = true),
+        onHorizontalDragUpdate: (d) => widget.onScrub(_at(d.localPosition.dx, c.maxWidth)),
+        onHorizontalDragEnd: (_) {
+          setState(() => _dragging = false);
+          widget.onScrubEnd(widget.position.value);
         },
+        onTapUp: (d) => widget.onScrubEnd(_at(d.localPosition.dx, c.maxWidth)),
+        child: SizedBox(
+          height: 28,
+          width: double.infinity,
+          child: ValueListenableBuilder<Duration>(
+            valueListenable: widget.duration,
+            builder: (context, dur, _) => ValueListenableBuilder<Duration>(
+              valueListenable: widget.position,
+              builder: (context, pos, _) {
+                final total = dur.inMilliseconds;
+                final value = total > 0 ? (pos.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
+                return CustomPaint(painter: _BarPainter(value: value, thick: _dragging));
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
+}
+
+class _BarPainter extends CustomPainter {
+  const _BarPainter({required this.value, required this.thick});
+  final double value;
+  final bool thick;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final h = thick ? 8.0 : 4.0;
+    final y = size.height / 2;
+    final track = RRect.fromRectAndRadius(Rect.fromLTWH(0, y - h / 2, size.width, h), Radius.circular(h / 2));
+    canvas.drawRRect(track, Paint()..color = const Color(0x4DFFFFFF));
+    final w = size.width * value;
+    if (w > 0) {
+      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0, y - h / 2, w, h), Radius.circular(h / 2)), Paint()..color = Colors.white);
+    }
+    canvas.drawCircle(Offset(w, y), thick ? 9 : 6, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(_BarPainter old) => old.value != value || old.thick != thick;
 }
 
 /// Centered "+45 s → 01:12:30" feedback while taps accumulate.
@@ -632,16 +748,16 @@ class _SeekIndicator extends StatelessWidget {
         return IgnorePointer(
           child: Center(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(16)),
+              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
+              decoration: BoxDecoration(color: const Color(0xB3000000), borderRadius: BorderRadius.circular(999)),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(secs < 0 ? Icons.fast_rewind : Icons.fast_forward, color: Colors.white, size: 36),
+                  Icon(secs < 0 ? Icons.fast_rewind_rounded : Icons.fast_forward_rounded, color: Colors.white, size: 32),
                   const SizedBox(width: 12),
                   Text(
                     '${secs > 0 ? '+' : '−'}${secs.abs()} s  ·  ${formatDuration(position.value)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.headlineSmall,
                   ),
                 ],
               ),
@@ -649,20 +765,6 @@ class _SeekIndicator extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(border: Border.all(color: Colors.white70), borderRadius: BorderRadius.circular(6)),
-      child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
     );
   }
 }
@@ -683,26 +785,31 @@ class _EpgLine extends ConsumerWidget {
     final next = programs.length > 1 ? programs[1] : null;
     final total = now.end.difference(now.start).inSeconds;
     final elapsed = DateTime.now().difference(now.start).inSeconds;
+    final text = Theme.of(context).textTheme;
+    final t = context.tokens;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '${l10n.nowPlaying} · ${formatTime(context, now.start, use24h: use24h)} – ${formatTime(context, now.end, use24h: use24h)}  ${now.title}',
-            style: const TextStyle(color: Colors.white),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          Row(
+            children: [
+              Expanded(child: Text(now.title, style: text.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Text(
+                '${formatTime(context, now.start, use24h: use24h)} – ${formatTime(context, now.end, use24h: use24h)}',
+                style: text.labelMedium?.copyWith(color: t.textMuted),
+              ),
+            ],
           ),
           if (total > 0)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: LinearProgressIndicator(value: (elapsed / total).clamp(0, 1), minHeight: 3),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: ClipRRect(borderRadius: BorderRadius.circular(2), child: ProgressStrip((elapsed / total).clamp(0, 1), height: 4)),
             ),
           if (next != null)
             Text(
-              '${l10n.next} · ${formatTime(context, next.start, use24h: use24h)}  ${next.title}',
-              style: const TextStyle(color: Colors.white70),
+              '${l10n.nextLabel}  ${formatTime(context, next.start, use24h: use24h)}  ${next.title}',
+              style: text.bodySmall?.copyWith(color: t.textMuted),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -732,7 +839,7 @@ class _TrackButton<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<T>(
       tooltip: tooltip,
-      icon: Icon(icon, color: Colors.white),
+      icon: Icon(icon),
       onSelected: onSelected,
       itemBuilder: (_) => [
         for (final t in tracks)
@@ -740,7 +847,7 @@ class _TrackButton<T> extends StatelessWidget {
             value: t,
             child: Row(
               children: [
-                Icon(t == current ? Icons.radio_button_checked : Icons.radio_button_off, size: 18),
+                Icon(t == current ? Icons.check_rounded : null, size: 18),
                 const SizedBox(width: 8),
                 Text(label(t)),
               ],
@@ -760,27 +867,31 @@ class _ErrorBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final text = Theme.of(context).textTheme;
+    final t = context.tokens;
     return Center(
-      child: Card(
-        color: Colors.black87,
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: GlassPanel(
+          strong: true,
+          radius: 20,
+          padding: const EdgeInsets.all(28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+              Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error, size: 44),
               const SizedBox(height: 12),
-              Text(l10n.playbackError, style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.white)),
-              const SizedBox(height: 4),
-              Text(l10n.playbackErrorDescription, style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center),
-              const SizedBox(height: 4),
-              Text(message, style: const TextStyle(color: Colors.white38, fontSize: 12), textAlign: TextAlign.center, maxLines: 3),
-              const SizedBox(height: 16),
+              Text(l10n.playbackError, style: text.titleLarge),
+              const SizedBox(height: 6),
+              Text(l10n.playbackErrorDescription, style: text.bodyMedium?.copyWith(color: t.textMuted), textAlign: TextAlign.center),
+              const SizedBox(height: 6),
+              Text(message, style: text.bodySmall?.copyWith(color: t.textFaint), textAlign: TextAlign.center, maxLines: 3),
+              const SizedBox(height: 20),
               Wrap(
-                spacing: 12,
+                spacing: 10,
                 children: [
-                  FilledButton.icon(autofocus: true, onPressed: onRetry, icon: const Icon(Icons.refresh), label: Text(l10n.retry)),
-                  OutlinedButton(onPressed: onExit, child: Text(l10n.exit)),
+                  PillButton(primary: true, autofocus: true, icon: Icons.refresh_rounded, label: l10n.retry, onPressed: onRetry),
+                  PillButton(label: l10n.exit, onPressed: onExit),
                 ],
               ),
             ],

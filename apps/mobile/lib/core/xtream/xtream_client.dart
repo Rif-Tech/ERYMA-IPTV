@@ -356,13 +356,26 @@ class XtreamEpisode {
 
 @immutable
 class XtreamSeriesInfo {
-  const XtreamSeriesInfo({required this.episodes, this.plot, this.cast, this.director, this.genre, this.youtubeTrailer});
+  const XtreamSeriesInfo({
+    required this.episodes,
+    this.plot,
+    this.cast,
+    this.director,
+    this.genre,
+    this.youtubeTrailer,
+    this.backdrop,
+    this.releaseDate,
+    this.rating,
+  });
   final List<XtreamEpisode> episodes;
   final String? plot;
   final String? cast;
   final String? director;
   final String? genre;
   final String? youtubeTrailer;
+  final String? backdrop;
+  final String? releaseDate;
+  final double? rating;
 
   factory XtreamSeriesInfo.fromJson(Map<String, dynamic> j) {
     final info = (j['info'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -390,6 +403,7 @@ class XtreamSeriesInfo {
       }
     }
     episodes.sort((a, b) => a.season != b.season ? a.season.compareTo(b.season) : a.episodeNum.compareTo(b.episodeNum));
+    final backdrops = info['backdrop_path'];
     return XtreamSeriesInfo(
       episodes: episodes,
       plot: jStrOrNull(info['plot']),
@@ -397,6 +411,9 @@ class XtreamSeriesInfo {
       director: jStrOrNull(info['director']),
       genre: jStrOrNull(info['genre']),
       youtubeTrailer: jStrOrNull(info['youtube_trailer']),
+      backdrop: backdrops is List && backdrops.isNotEmpty ? backdrops.first.toString() : jStrOrNull(backdrops),
+      releaseDate: jStrOrNull(info['releaseDate'] ?? info['release_date']),
+      rating: info['rating'] == null ? null : double.tryParse(info['rating'].toString()),
     );
   }
 }

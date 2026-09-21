@@ -48,6 +48,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Appareils</h1>
         <div className="flex gap-2">
+          <Link href="/admin/featured" className="btn-secondary">À la une</Link>
           <Link href="/admin/config" className="btn-secondary">Configuration de l&apos;app</Link>
           <form action={adminLogoutAction}><button className="btn-secondary">Déconnexion</button></form>
         </div>

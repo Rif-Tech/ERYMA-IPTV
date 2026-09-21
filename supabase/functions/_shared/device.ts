@@ -108,3 +108,25 @@ export async function authenticatePortal(db: SupabaseClient, req: Request): Prom
   if (!data) throw new HttpError(401, "Unknown device");
   return data as DeviceRow;
 }
+
+/** Verifies a Supabase Auth JWT (`Authorization: Bearer`) and requires the admin role. */
+export async function authenticateAdmin(db: SupabaseClient, req: Request): Promise<{ id: string }> {
+  const token = (req.headers.get("x-admin-token") ?? req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) throw new HttpError(401, "Missing token");
+  const { data: userData, error: userErr } = await db.auth.getUser(token);
+  if (userErr || !userData.user) throw new HttpError(401, "Invalid session");
+  const { data, error } = await db.from("profiles").select("role").eq("id", userData.user.id).maybeSingle();
+  if (error) throw new HttpError(500, error.message);
+  if (data?.role !== "admin") throw new HttpError(403, "Admin only");
+  return { id: userData.user.id };
+}
+
+/** Accepts either a device (`mac`/`key` query params) or an admin session. */
+export async function authenticateDeviceOrAdmin(db: SupabaseClient, req: Request): Promise<void> {
+  const url = new URL(req.url);
+  if (url.searchParams.get("mac")) {
+    await authenticateDevice(db, url.searchParams.get("mac"), url.searchParams.get("key"));
+    return;
+  }
+  await authenticateAdmin(db, req);
+}

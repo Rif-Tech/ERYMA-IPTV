@@ -24,13 +24,14 @@ FormFactor formFactorOf(BuildContext context, {bool isTv = false}) {
 extension FormFactorX on FormFactor {
   bool get isTv => this == FormFactor.tv;
   bool get isMobile => this == FormFactor.mobile;
+  bool get isTablet => this == FormFactor.tablet;
 
   /// Number of poster columns for a grid of the given width.
   int posterColumns(double width) {
     final target = switch (this) {
       FormFactor.mobile => 120.0,
       FormFactor.tablet => 150.0,
-      FormFactor.tv => 180.0,
+      FormFactor.tv => 105.0,
     };
     return (width / target).floor().clamp(2, 12);
   }

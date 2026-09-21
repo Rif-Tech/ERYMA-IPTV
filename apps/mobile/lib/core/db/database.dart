@@ -299,6 +299,21 @@ class AppDatabase extends _$AppDatabase {
       (select(movies)..where((m) => m.playlistId.equals(playlistId) & m.streamId.equals(streamId)))
           .getSingleOrNull();
 
+  /// Newest movies by provider `added` date (falls back to import order when dates are missing).
+  Future<List<Movie>> getRecentMovies(String playlistId, {int limit = 20}) =>
+      (select(movies)
+            ..where((m) => m.playlistId.equals(playlistId))
+            ..orderBy([(m) => OrderingTerm.desc(m.addedAt), (m) => OrderingTerm.asc(m.position)])
+            ..limit(limit))
+          .get();
+
+  Future<List<SeriesItem>> getRecentSeries(String playlistId, {int limit = 20}) =>
+      (select(seriesItems)
+            ..where((s) => s.playlistId.equals(playlistId))
+            ..orderBy([(s) => OrderingTerm.desc(s.addedAt), (s) => OrderingTerm.asc(s.position)])
+            ..limit(limit))
+          .get();
+
   Future<List<SeriesItem>> getSeries(String playlistId, {String? categoryId}) {
     final q = select(seriesItems)..where((s) => s.playlistId.equals(playlistId));
     if (categoryId != null) q.where((s) => s.categoryId.equals(categoryId));

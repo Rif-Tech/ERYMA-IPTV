@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/responsive.dart';
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../content/content_providers.dart';
@@ -37,74 +39,116 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final l10n = AppLocalizations.of(context);
     final query = ref.watch(_queryProvider);
     final results = ref.watch(searchProvider(query));
+    final top = MediaQuery.paddingOf(context).top;
+    final g = context.tokens.pageGutter;
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: TextField(
-            autofocus: true,
-            controller: _controller,
-            decoration: InputDecoration(
-              hintText: l10n.searchHint,
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: query.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _controller.clear();
-                        ref.read(_queryProvider.notifier).set('');
-                      },
-                    ),
+    return Responsive(
+      builder: (context, form) => Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(g, top + 12, g, 8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: TextField(
+                autofocus: true,
+                controller: _controller,
+                style: Theme.of(context).textTheme.titleMedium,
+                decoration: InputDecoration(
+                  hintText: l10n.searchHint,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(999)), borderSide: BorderSide.none),
+                  enabledBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(999)), borderSide: BorderSide.none),
+                  focusedBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(999)), borderSide: BorderSide(color: Colors.white, width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: () {
+                            _controller.clear();
+                            ref.read(_queryProvider.notifier).set('');
+                          },
+                        ),
+                ),
+                onChanged: (v) => ref.read(_queryProvider.notifier).set(v),
+              ),
             ),
-            onChanged: (v) => ref.read(_queryProvider.notifier).set(v),
           ),
-        ),
-        Expanded(
-          child: results.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => EmptyState(icon: Icons.error_outline, message: e.toString()),
-            data: (r) {
-              if (query.trim().length < 2) return const SizedBox.shrink();
-              if (r.isEmpty) return EmptyState(icon: Icons.search_off, message: l10n.noResults);
-              return ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: [
-                  if (r.channels.isNotEmpty) SectionHeader(l10n.liveTv),
-                  for (final (i, c) in r.channels.indexed)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: ChannelTile(name: c.name, logo: c.logo, dense: true, onTap: () => playChannels(context, ref, r.channels, i)),
-                    ),
-                  if (r.movies.isNotEmpty) SectionHeader(l10n.movies),
-                  for (final m in r.movies)
-                    FocusableCard(
-                      scale: 1.01,
-                      onTap: () => context.push(Routes.movie(m.streamId)),
-                      child: ListTile(
-                        leading: SizedBox(width: 40, height: 56, child: AppImage(m.poster, icon: Icons.movie)),
-                        title: Text(m.name),
-                        subtitle: m.year != null ? Text('${m.year}') : null,
+          Expanded(
+            child: results.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => EmptyState(icon: Icons.error_outline, message: e.toString()),
+              data: (r) {
+                if (query.trim().length < 2) return const SizedBox.shrink();
+                if (r.isEmpty) return EmptyState(icon: Icons.search_off_rounded, message: l10n.noResults);
+                final posterW = form.isMobile ? 120.0 : 160.0;
+                final channelW = form.isMobile ? 150.0 : 190.0;
+                return ListView(
+                  padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
+                  children: [
+                    if (r.channels.isNotEmpty)
+                      Shelf(
+                        title: l10n.liveTv,
+                        itemCount: r.channels.length,
+                        itemWidth: channelW,
+                        height: channelW * 9 / 16,
+                        itemBuilder: (context, i) {
+                          final c = r.channels[i];
+                          return FocusableCard(
+                            onTap: () => playChannels(context, ref, r.channels, i),
+                            child: GlassPanel(
+                              radius: 12,
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                children: [
+                                  Expanded(child: AppImage(c.logo, fit: BoxFit.contain, icon: Icons.live_tv, decodeWidth: 240)),
+                                  const SizedBox(height: 6),
+                                  Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                  if (r.series.isNotEmpty) SectionHeader(l10n.series),
-                  for (final s in r.series)
-                    FocusableCard(
-                      scale: 1.01,
-                      onTap: () => context.push(Routes.seriesDetail(s.seriesId)),
-                      child: ListTile(
-                        leading: SizedBox(width: 40, height: 56, child: AppImage(s.cover, icon: Icons.video_library)),
-                        title: Text(s.name),
-                        subtitle: s.year != null ? Text('${s.year}') : null,
+                    if (r.movies.isNotEmpty)
+                      Shelf(
+                        title: l10n.movies,
+                        itemCount: r.movies.length,
+                        itemWidth: posterW,
+                        height: posterW * 3 / 2 + 40,
+                        itemBuilder: (context, i) {
+                          final m = r.movies[i];
+                          return PosterCard(
+                            title: m.name,
+                            subtitle: m.year?.toString(),
+                            imageUrl: m.poster,
+                            onTap: () => context.push(Routes.movie(m.streamId)),
+                          );
+                        },
                       ),
-                    ),
-                ],
-              );
-            },
+                    if (r.series.isNotEmpty)
+                      Shelf(
+                        title: l10n.series,
+                        itemCount: r.series.length,
+                        itemWidth: posterW,
+                        height: posterW * 3 / 2 + 40,
+                        itemBuilder: (context, i) {
+                          final s = r.series[i];
+                          return PosterCard(
+                            title: s.name,
+                            subtitle: s.year?.toString(),
+                            imageUrl: s.cover,
+                            onTap: () => context.push(Routes.seriesDetail(s.seriesId)),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

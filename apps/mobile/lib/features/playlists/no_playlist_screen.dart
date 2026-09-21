@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../../widgets/common.dart';
 import '../splash/splash_screen.dart';
 import 'device_info_card.dart';
 import 'playlists_provider.dart';
@@ -50,43 +52,30 @@ class NoPlaylistScreen extends ConsumerWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(24),
             children: [
               Text(
                 blocked ? l10n.trialEnded : l10n.noPlaylistDescription,
                 style: theme.textTheme.bodyLarge,
               ),
               const SizedBox(height: 8),
-              Text(l10n.scanQr, style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 16),
+              Text(l10n.scanQr, style: theme.textTheme.bodyMedium?.copyWith(color: context.tokens.textMuted)),
+              const SizedBox(height: 20),
               const DeviceInfoCard(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               if (!blocked)
                 Wrap(
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    FilledButton.icon(
-                      autofocus: true,
-                      onPressed: () => context.push(Routes.addXtream),
-                      icon: const Icon(Icons.vpn_key),
-                      label: Text(l10n.addXtream),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed: () => context.push(Routes.addM3u),
-                      icon: const Icon(Icons.link),
-                      label: Text(l10n.addM3u),
-                    ),
+                    PillButton(primary: true, autofocus: true, icon: Icons.vpn_key_rounded, label: l10n.addXtream, onPressed: () => context.push(Routes.addXtream)),
+                    PillButton(icon: Icons.link_rounded, label: l10n.addM3u, onPressed: () => context.push(Routes.addM3u)),
                     if (playlists.isNotEmpty)
-                      OutlinedButton.icon(
-                        onPressed: () => context.go(Routes.playlists),
-                        icon: const Icon(Icons.playlist_play),
-                        label: Text(l10n.myPlaylists),
-                      ),
+                      PillButton(icon: Icons.playlist_play_rounded, label: l10n.myPlaylists, onPressed: () => context.go(Routes.playlists)),
                   ],
                 ),
-              const SizedBox(height: 24),
-              Text(l10n.disclaimer, style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
+              const SizedBox(height: 28),
+              Text(l10n.disclaimer, style: theme.textTheme.bodySmall?.copyWith(color: context.tokens.textFaint), textAlign: TextAlign.center),
             ],
           ),
         ),

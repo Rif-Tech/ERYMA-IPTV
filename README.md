@@ -15,12 +15,15 @@ docs            Analyse de l'application d'origine, API
 2. L'utilisateur ajoute ses playlists (M3U ou Xtream Codes) soit dans l'app, soit sur le portail web en se connectant avec la MAC + la clé (ou via le QR code affiché par l'app).
 3. L'app synchronise les playlists du portail, importe chaînes / films / séries / EPG en base locale et lit les flux avec `media_kit`.
 4. Un essai gratuit est ouvert à l'enregistrement ; l'administrateur active ensuite l'appareil depuis `/admin`.
+5. Le carrousel « À la une » de l'accueil est piloté par l'administrateur (`/admin/featured`, films/séries par ID TMDB ou bannières libres) ; l'utilisateur peut aussi choisir « les plus regardés » ou les tendances TMDB. Un film/série n'apparaît que s'il existe dans ses playlists.
 
 L'application ne fournit aucun contenu : elle lit uniquement les sources fournies par l'utilisateur.
 
 ## Démarrage rapide
 
 Le backend est déployé sur Supabase cloud (`https://zeproepijcixdmszlkmf.supabase.co`) : schéma via [supabase/migrations](supabase/migrations), fonctions via [supabase/functions](supabase/functions). Test rapide : `.\scripts\smoke-test.ps1`.
+
+Secrets Edge Functions à définir (Dashboard → Edge Functions → Secrets ou `npx supabase secrets set`) : `TMDB_API_KEY` (recherche/visuels TMDB) et, en production, `PORTAL_TOKEN_SECRET`.
 
 ```powershell
 # App Flutter (pointe par défaut sur le cloud ; surchargez avec --dart-define=API_BASE_URL/API_ANON_KEY/PORTAL_URL)

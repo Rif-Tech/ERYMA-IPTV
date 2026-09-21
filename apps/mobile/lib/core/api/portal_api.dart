@@ -126,6 +126,88 @@ int compareVersions(String a, String b) {
 
 DateTime? _date(dynamic v) => v == null ? null : DateTime.tryParse(v.toString())?.toLocal();
 
+/// One "À la une" entry from the `featured` function (admin pick, TMDB trend or popular title).
+@immutable
+class FeaturedEntry {
+  const FeaturedEntry({
+    required this.id,
+    required this.kind,
+    required this.title,
+    this.tmdbId,
+    this.subtitle,
+    this.overview,
+    this.year,
+    this.posterUrl,
+    this.backdropUrl,
+    this.linkKind,
+    this.linkQuery,
+    this.requireMatch = true,
+    this.eventAt,
+    this.eventEndAt,
+  });
+
+  final String id;
+
+  /// `movie` | `tv` | `live` | `custom`.
+  final String kind;
+  final int? tmdbId;
+  final String title;
+  final String? subtitle;
+  final String? overview;
+  final int? year;
+  final String? posterUrl;
+  final String? backdropUrl;
+
+  /// Explicit target for custom banners: `channel` | `movie` | `series` | `url`.
+  final String? linkKind;
+  final String? linkQuery;
+  final bool requireMatch;
+
+  /// Scheduled event window (custom banners); null when the banner is not time-bound.
+  final DateTime? eventAt;
+  final DateTime? eventEndAt;
+
+  factory FeaturedEntry.fromJson(Map<String, dynamic> j) => FeaturedEntry(
+        id: j['id'].toString(),
+        kind: (j['kind'] ?? 'custom').toString(),
+        tmdbId: (j['tmdb_id'] as num?)?.toInt(),
+        title: (j['title'] ?? '').toString(),
+        subtitle: j['subtitle'] as String?,
+        overview: j['overview'] as String?,
+        year: (j['year'] as num?)?.toInt(),
+        posterUrl: j['poster_url'] as String?,
+        backdropUrl: j['backdrop_url'] as String?,
+        linkKind: j['link_kind'] as String?,
+        linkQuery: j['link_query'] as String?,
+        requireMatch: j['require_match'] != false,
+        eventAt: _date(j['event_at']),
+        eventEndAt: _date(j['event_end_at']),
+      );
+}
+
+/// TMDB details relayed by the `tmdb` function (artwork + synopsis).
+@immutable
+class TmdbSummary {
+  const TmdbSummary({required this.tmdbId, required this.title, this.year, this.overview, this.posterUrl, this.backdropUrl, this.rating});
+  final int tmdbId;
+  final String title;
+  final int? year;
+  final String? overview;
+  final String? posterUrl;
+  final String? backdropUrl;
+  final double? rating;
+
+  factory TmdbSummary.fromJson(Map<String, dynamic> j) => TmdbSummary(
+        tmdbId: (j['tmdb_id'] as num).toInt(),
+        title: (j['title'] ?? '').toString(),
+        year: (j['year'] as num?)?.toInt(),
+        overview: j['overview'] as String?,
+        posterUrl: j['poster_url'] as String?,
+        backdropUrl: j['backdrop_url'] as String?,
+        rating: (j['rating'] as num?)?.toDouble(),
+      );
+}
+
 class PortalApiException implements Exception {
   const PortalApiException(this.message, {this.statusCode});
   final String message;
@@ -181,6 +263,41 @@ class PortalApi {
   Future<void> deletePlaylist(DeviceIdentity device, String playlistId) async {
     await _request('DELETE', '/device-playlists', body: {'mac': device.mac, 'key': device.key, 'id': playlistId});
   }
+
+  /// `mode`: `curated` | `popular` | `tmdb`.
+  Future<List<FeaturedEntry>> featured(DeviceIdentity device, {required String mode, required String lang}) async {
+    final json = await _get('/featured', {'mac': device.mac, 'key': device.key, 'mode': mode, 'lang': lang});
+    return (json['items'] as List? ?? const []).whereType<Map>().map((e) => FeaturedEntry.fromJson(e.cast<String, dynamic>())).toList();
+  }
+
+  /// `kind`: `movie` | `tv`. Returns null when TMDB is not configured or the id is unknown.
+  Future<TmdbSummary?> tmdbDetails(DeviceIdentity device, {required String kind, required int id, required String lang}) async {
+    try {
+      final json = await _get('/tmdb', {'mac': device.mac, 'key': device.key, 'action': 'details', 'type': kind, 'id': '$id', 'lang': lang});
+      return json['tmdb_id'] == null ? null : TmdbSummary.fromJson(json);
+    } on PortalApiException {
+      return null;
+    }
+  }
+
+  /// Anonymous playback statistic; failures are ignored by callers.
+  Future<void> reportWatch(
+    DeviceIdentity device, {
+    required String kind,
+    required String titleKey,
+    required String title,
+    int? year,
+    int? tmdbId,
+  }) =>
+      _post('/watch-events', {
+        'mac': device.mac,
+        'key': device.key,
+        'kind': kind,
+        'title_key': titleKey,
+        'title': title,
+        'year': ?year,
+        'tmdb_id': ?tmdbId,
+      });
 
   Future<Map<String, dynamic>> _get(String path, [Map<String, String>? query]) =>
       _request('GET', path, query: query);

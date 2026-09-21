@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/xtream/xtream_client.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
+import '../home/featured_provider.dart' show tmdbArtProvider;
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
 
@@ -42,28 +44,32 @@ class MovieDetailScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final movie = ref.watch(_movieProvider(streamId));
     return Scaffold(
-      appBar: AppBar(title: Text(movie.value?.name ?? '')),
       body: AsyncView(
         value: movie,
         builder: (m) {
           if (m == null) return EmptyState(icon: Icons.movie, message: l10n.noMovies);
           final info = ref.watch(movieInfoProvider(streamId)).value;
+          final tmdbId = int.tryParse(info?.tmdbId ?? '');
+          // Panel backdrops are often dead links; prefer TMDB art when the panel exposes an id.
+          final tmdb = tmdbId == null ? null : ref.watch(tmdbArtProvider(('movie', tmdbId))).value;
           final history = ref.watch(_historyProvider((ContentKind.vod, streamId))).value;
           final playlist = ref.watch(activePlaylistProvider)!;
           final isFav = ref.watch(_favProvider((playlist.id, ContentKind.vod, streamId))).value ?? false;
 
           return DetailLayout(
             poster: m.poster,
-            backdrop: info?.backdrop,
+            backdrop: tmdb?.backdropUrl ?? info?.backdrop,
             title: m.name,
             meta: [
-              if (info?.releaseDate != null) info!.releaseDate!,
+              if (info?.releaseDate != null) info!.releaseDate!.split('-').first,
               if (m.year != null && info?.releaseDate == null) '${m.year}',
               if (info?.genre != null) info!.genre!,
               if (info?.durationSecs != null) formatDuration(Duration(seconds: info!.durationSecs!)),
+              if ((info?.rating ?? m.rating) != null && (info?.rating ?? m.rating)! > 0) '★ ${(info?.rating ?? m.rating)!.toStringAsFixed(1)}',
+            ],
+            badges: [
               if (info?.resolution != null) info!.resolution!,
               if (info?.videoCodec != null) info!.videoCodec!.toUpperCase(),
-              if ((info?.rating ?? m.rating) != null) '★ ${(info?.rating ?? m.rating)!.toStringAsFixed(1)}',
             ],
             plot: info?.plot,
             facts: {
@@ -71,31 +77,24 @@ class MovieDetailScreen extends ConsumerWidget {
               if (info?.cast != null) l10n.cast: info!.cast!,
             },
             actions: [
-              FilledButton.icon(
+              PillButton(
+                primary: true,
                 autofocus: true,
+                icon: Icons.play_arrow_rounded,
                 onPressed: () => playMovie(context, ref, m),
-                icon: const Icon(Icons.play_arrow),
-                label: Text(history != null && history.positionMs > 0
+                label: history != null && history.positionMs > 0
                     ? l10n.resumeFrom(formatDuration(Duration(milliseconds: history.positionMs)))
-                    : l10n.play),
+                    : l10n.play,
               ),
               if (history != null && history.positionMs > 0)
-                OutlinedButton.icon(
-                  onPressed: () => playMovie(context, ref, m, resume: false),
-                  icon: const Icon(Icons.replay),
-                  label: Text(l10n.startOver),
-                ),
-              OutlinedButton.icon(
+                PillButton(icon: Icons.replay_rounded, label: l10n.startOver, onPressed: () => playMovie(context, ref, m, resume: false)),
+              PillButton(
+                icon: isFav ? Icons.check_rounded : Icons.add_rounded,
+                label: isFav ? l10n.removeFromFavorites : l10n.addToFavorites,
                 onPressed: () => ref.read(databaseProvider).toggleFavorite(playlist.id, ContentKind.vod, streamId),
-                icon: Icon(isFav ? Icons.star : Icons.star_border),
-                label: Text(isFav ? l10n.removeFromFavorites : l10n.addToFavorites),
               ),
               if (info?.youtubeTrailer != null && info!.youtubeTrailer!.isNotEmpty)
-                OutlinedButton.icon(
-                  onPressed: () => openTrailer(info.youtubeTrailer!),
-                  icon: const Icon(Icons.ondemand_video),
-                  label: Text(l10n.watchTrailer),
-                ),
+                PillButton(icon: Icons.ondemand_video_rounded, label: l10n.watchTrailer, onPressed: () => openTrailer(info.youtubeTrailer!)),
             ],
           );
         },
@@ -108,7 +107,7 @@ final _favProvider = StreamProvider.family<bool, (String, ContentKind, String)>(
   return ref.watch(databaseProvider).watchIsFavorite(key.$1, key.$2, key.$3);
 });
 
-/// Poster + metadata layout shared by movie and series details; adapts to width.
+/// Cinematic detail layout: full-width backdrop fading into black, then title, badges, pills and plot.
 class DetailLayout extends StatelessWidget {
   const DetailLayout({
     super.key,
@@ -117,6 +116,7 @@ class DetailLayout extends StatelessWidget {
     this.poster,
     this.backdrop,
     this.meta = const [],
+    this.badges = const [],
     this.plot,
     this.facts = const {},
     this.below,
@@ -126,6 +126,9 @@ class DetailLayout extends StatelessWidget {
   final String? poster;
   final String? backdrop;
   final List<String> meta;
+
+  /// Short technical labels rendered as bordered badges (resolution, codec, "Series").
+  final List<String> badges;
   final String? plot;
   final Map<String, String> facts;
   final List<Widget> actions;
@@ -134,61 +137,134 @@ class DetailLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 700;
-        final posterWidget = SizedBox(
-          width: wide ? 220 : 140,
-          child: AspectRatio(
-            aspectRatio: 2 / 3,
-            child: ClipRRect(borderRadius: BorderRadius.circular(12), child: AppImage(poster, icon: Icons.movie)),
-          ),
-        );
-        final details = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: wide ? theme.textTheme.headlineMedium : theme.textTheme.headlineSmall),
-            if (meta.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(meta.join('  ·  '), style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-              ),
-            const SizedBox(height: 16),
-            Wrap(spacing: 8, runSpacing: 8, children: actions),
-            if (plot != null && plot!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(plot!, style: theme.textTheme.bodyLarge),
-            ],
-            for (final f in facts.entries)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text.rich(TextSpan(children: [
-                  TextSpan(text: '${f.key}: ', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  TextSpan(text: f.value),
-                ])),
-              ),
-          ],
-        );
+    final text = theme.textTheme;
+    final t = context.tokens;
+    final size = MediaQuery.sizeOf(context);
+    final top = MediaQuery.paddingOf(context).top;
+    final wide = size.width >= 700;
+    final g = t.pageGutter;
+    final artHeight = wide ? (size.height * 0.58).clamp(320.0, 640.0) : (size.height * 0.42).clamp(240.0, 420.0);
 
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (backdrop != null && wide)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: SizedBox(height: 220, child: AppImage(backdrop, icon: Icons.image)),
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: artHeight,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                BackdropArt(backdrop: backdrop, poster: poster, showPoster: !wide || poster == null),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: [0, 0.3, 0.7, 1],
+                      colors: [Color(0x990A0A0A), Color(0x000A0A0A), Color(0x990A0A0A), Color(0xFF0A0A0A)],
+                    ),
+                  ),
                 ),
-              ),
-            if (wide)
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [posterWidget, const SizedBox(width: 24), Expanded(child: details)])
-            else
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Center(child: posterWidget), const SizedBox(height: 16), details]),
-            if (below != null) ...[const SizedBox(height: 24), below!],
-          ],
-        );
-      },
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      stops: [0, 0.6],
+                      colors: [Color(0x990A0A0A), Color(0x000A0A0A)],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: top + 8,
+                  left: 8,
+                  child: IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    style: IconButton.styleFrom(backgroundColor: const Color(0x66000000)),
+                  ),
+                ),
+                Positioned(
+                  left: g,
+                  right: g,
+                  bottom: 0,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (wide && poster != null)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 28),
+                          child: SizedBox(
+                            width: 170,
+                            child: AspectRatio(
+                              aspectRatio: 2 / 3,
+                              child: ClipRRect(borderRadius: BorderRadius.circular(12), child: AppImage(poster, icon: Icons.movie, decodeWidth: 360)),
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: wide ? text.displaySmall : text.headlineMedium),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (meta.isNotEmpty) Text(meta.join('  ·  '), style: text.bodyMedium?.copyWith(color: t.textMuted)),
+                                for (final b in badges) MetaBadge(b),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            Wrap(spacing: 10, runSpacing: 10, children: actions),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(g, 24, g, 40 + MediaQuery.paddingOf(context).bottom),
+          sliver: SliverList.list(
+            children: [
+              if (plot != null && plot!.isNotEmpty)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: Text(plot!, style: text.bodyLarge?.copyWith(color: t.textMuted, height: 1.5)),
+                ),
+              if (facts.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: Wrap(
+                    spacing: 40,
+                    runSpacing: 12,
+                    children: [
+                      for (final f in facts.entries)
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 380),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(f.key.toUpperCase(), style: text.labelSmall?.copyWith(color: t.textFaint, letterSpacing: 1)),
+                              const SizedBox(height: 4),
+                              Text(f.value, style: text.bodyMedium),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              if (below != null) ...[const SizedBox(height: 28), below!],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

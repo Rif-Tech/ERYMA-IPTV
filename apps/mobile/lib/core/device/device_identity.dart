@@ -120,8 +120,15 @@ class DeviceIdentityService {
       if (vendorId != null) seed = 'ios:$vendorId';
       type = ios.model.toLowerCase().contains('ipad') ? DeviceType.tablet : DeviceType.mobile;
     }
-    mac ??= seed != null ? macFromSeed(seed) : macFromBytes(_randomBytes(6));
-    key ??= seed != null ? keyFromSeed(seed) : generateDeviceKey();
+    // With a hardware seed the identity is a pure function of the device: never let a stale or
+    // half-decrypted stored value win, otherwise debug/release installs end up with mismatched keys.
+    if (seed != null) {
+      mac = macFromSeed(seed);
+      key = keyFromSeed(seed);
+    } else {
+      mac ??= macFromBytes(_randomBytes(6));
+      key ??= generateDeviceKey();
+    }
 
     await _write(_macKey, mac);
     await _write(_keyKey, key);

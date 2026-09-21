@@ -2,7 +2,6 @@
 *.apk
 *.xapk
 *.zip
-Apple+TV/
 apk_extracted/
 apk_jadx/
 apk_strings.txt

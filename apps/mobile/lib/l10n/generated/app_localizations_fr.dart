@@ -376,16 +376,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get theme => 'Thème';
 
   @override
-  String get themeSystem => 'Système';
-
-  @override
   String get themeDark => 'Sombre';
 
   @override
-  String get themeLight => 'Clair';
+  String get themeAmoled => 'Noir AMOLED';
 
   @override
-  String get themeAmoled => 'Noir AMOLED';
+  String get languageSystem => 'Système';
 
   @override
   String get parentalControl => 'Contrôle parental';
@@ -613,4 +610,86 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get maintenance =>
       'Le service est en maintenance. Réessayez plus tard.';
+
+  @override
+  String get featured => 'À la une';
+
+  @override
+  String get recentlyAddedMovies => 'Nouveaux films';
+
+  @override
+  String get recentlyAddedSeries => 'Nouvelles séries';
+
+  @override
+  String get moreInfo => 'Infos';
+
+  @override
+  String get nowLabel => 'Maintenant';
+
+  @override
+  String get nextLabel => 'Ensuite';
+
+  @override
+  String remaining(String time) {
+    return '$time restantes';
+  }
+
+  @override
+  String episodeNumber(int n) {
+    return 'Épisode $n';
+  }
+
+  @override
+  String get appearance => 'Apparence';
+
+  @override
+  String get playback => 'Lecture';
+
+  @override
+  String get account => 'Compte';
+
+  @override
+  String get episodesTitle => 'Épisodes';
+
+  @override
+  String get featuredSource => 'Contenu à la une';
+
+  @override
+  String get featuredCurated => 'Sélection de l\'équipe';
+
+  @override
+  String get featuredPopular => 'Les plus regardés en ce moment';
+
+  @override
+  String get featuredTmdb => 'Tendances TMDB';
+
+  @override
+  String get watchNow => 'Regarder';
+
+  @override
+  String get openLink => 'Ouvrir';
+
+  @override
+  String get eventNow => 'Maintenant';
+
+  @override
+  String todayAt(String time) {
+    return 'Aujourd\'hui à $time';
+  }
+
+  @override
+  String tomorrowAt(String time) {
+    return 'Demain à $time';
+  }
+
+  @override
+  String seasonsCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count saisons',
+      one: '1 saison',
+    );
+    return '$_temp0';
+  }
 }

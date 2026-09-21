@@ -80,25 +80,24 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.live_tv_rounded, size: 96, color: scheme.primary),
-              const SizedBox(height: 16),
-              Text(l10n.appName, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 32),
-              if (_blockingMessage == null) ...[
-                const CircularProgressIndicator(),
-                const SizedBox(height: 12),
-                Text(l10n.loading),
-              ] else ...[
-                Text(_blockingMessage!, textAlign: TextAlign.center),
-                const SizedBox(height: 16),
+              const Icon(Icons.play_circle_fill_rounded, size: 88, color: Colors.white),
+              const SizedBox(height: 18),
+              Text(l10n.appName, style: text.displaySmall),
+              const SizedBox(height: 40),
+              if (_blockingMessage == null)
+                const SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+              else ...[
+                Text(_blockingMessage!, textAlign: TextAlign.center, style: text.bodyLarge?.copyWith(color: const Color(0xB3FFFFFF))),
+                const SizedBox(height: 20),
                 Wrap(
                   spacing: 12,
                   children: [
@@ -106,7 +105,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                       FilledButton.icon(
                         autofocus: true,
                         onPressed: () => launchUrl(Uri.parse(_updateLink!), mode: LaunchMode.externalApplication),
-                        icon: const Icon(Icons.system_update),
+                        icon: const Icon(Icons.system_update_rounded),
                         label: Text(l10n.updateNow),
                       ),
                     OutlinedButton.icon(
@@ -116,7 +115,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                         ref.invalidate(deviceSessionProvider);
                         _run();
                       },
-                      icon: const Icon(Icons.refresh),
+                      icon: const Icon(Icons.refresh_rounded),
                       label: Text(l10n.retry),
                     ),
                   ],

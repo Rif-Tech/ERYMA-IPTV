@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../../widgets/common.dart';
 import '../../widgets/pin_dialog.dart';
 import '../playlists/device_info_card.dart';
 import '../playlists/playlists_provider.dart';
@@ -23,10 +24,23 @@ class SettingsScreen extends ConsumerWidget {
     final playlist = ref.watch(activePlaylistProvider);
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(
+        context.tokens.pageGutter,
+        MediaQuery.paddingOf(context).top + 12,
+        context.tokens.pageGutter,
+        32 + MediaQuery.paddingOf(context).bottom,
+      ),
       children: [
-        const DeviceInfoCard(showQr: false),
-        const SizedBox(height: 16),
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 820),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(l10n.settings, style: Theme.of(context).textTheme.headlineMedium),
+                const SizedBox(height: 20),
+                const DeviceInfoCard(showQr: false),
+                const SizedBox(height: 16),
         _Section(l10n.myPlaylists, [
           ListTile(
             leading: const Icon(Icons.playlist_play),
@@ -53,13 +67,13 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: n.setAutoUpdate,
           ),
         ]),
-        _Section(l10n.settings, [
+        _Section(l10n.appearance, [
           _EnumTile<Locale?>(
             icon: Icons.language,
             title: l10n.language,
             value: s.locale,
             values: const [null, Locale('fr'), Locale('en')],
-            label: (v) => switch (v?.languageCode) { 'fr' => 'Français', 'en' => 'English', _ => l10n.themeSystem },
+            label: (v) => switch (v?.languageCode) { 'fr' => 'Français', 'en' => 'English', _ => l10n.languageSystem },
             onChanged: n.setLocale,
           ),
           _EnumTile<AppThemeMode>(
@@ -68,9 +82,7 @@ class SettingsScreen extends ConsumerWidget {
             value: s.themeMode,
             values: AppThemeMode.values,
             label: (v) => switch (v) {
-              AppThemeMode.system => l10n.themeSystem,
               AppThemeMode.dark => l10n.themeDark,
-              AppThemeMode.light => l10n.themeLight,
               AppThemeMode.amoled => l10n.themeAmoled,
             },
             onChanged: n.setThemeMode,
@@ -104,6 +116,18 @@ class SettingsScreen extends ConsumerWidget {
             value: s.use24hClock,
             onChanged: n.setUse24hClock,
           ),
+          _EnumTile<FeaturedSource>(
+            icon: Icons.star_outline_rounded,
+            title: l10n.featuredSource,
+            value: s.featuredSource,
+            values: FeaturedSource.values,
+            label: (v) => switch (v) {
+              FeaturedSource.curated => l10n.featuredCurated,
+              FeaturedSource.popular => l10n.featuredPopular,
+              FeaturedSource.tmdb => l10n.featuredTmdb,
+            },
+            onChanged: n.setFeaturedSource,
+          ),
         ]),
         _Section(l10n.parentalControl, [
           ListTile(
@@ -120,7 +144,7 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => context.push(Routes.groups),
           ),
         ]),
-        _Section('${l10n.liveTv} / ${l10n.subtitles}', [
+        _Section(l10n.playback, [
           _EnumTile<LiveFormat>(
             icon: Icons.stream,
             title: l10n.liveStreamFormat,
@@ -169,7 +193,7 @@ class SettingsScreen extends ConsumerWidget {
                       decoration: BoxDecoration(
                         color: Color(c),
                         shape: BoxShape.circle,
-                        border: Border.all(color: s.subtitleColor == c ? Theme.of(context).colorScheme.primary : Colors.grey, width: 2),
+                        border: Border.all(color: s.subtitleColor == c ? Colors.white : Colors.transparent, width: 2),
                       ),
                     ),
                   ),
@@ -203,6 +227,10 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ListTile(leading: const Icon(Icons.info_outline), title: Text(l10n.appName), subtitle: Text(l10n.disclaimer)),
         ]),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -215,16 +243,33 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.primary)),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              title.toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: context.tokens.textFaint, letterSpacing: 1),
+            ),
           ),
-          ...children,
+          GlassPanel(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            // Ink (focus highlight) must paint above the panel background, not on the page Material below it.
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                children: [
+                  for (final (i, c) in children.indexed) ...[
+                    if (i > 0) Divider(indent: 56, endIndent: 16, color: context.tokens.glass),
+                    c,
+                  ],
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

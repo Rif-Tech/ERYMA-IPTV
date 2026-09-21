@@ -14,6 +14,9 @@ enum SortOrder { defaultOrder, az, za, added, rating }
 
 enum VideoFit { contain, cover, fill }
 
+/// Where the home hero ("À la une") takes its content from.
+enum FeaturedSource { curated, popular, tmdb }
+
 @immutable
 class AppSettings {
   const AppSettings({
@@ -28,6 +31,7 @@ class AppSettings {
     this.subtitleColor = 0xFFFFFFFF,
     this.subtitleBackground = false,
     this.use24hClock = true,
+    this.featuredSource = FeaturedSource.curated,
     this.parentalPin,
     this.activePlaylistId,
   });
@@ -43,6 +47,7 @@ class AppSettings {
   final int subtitleColor;
   final bool subtitleBackground;
   final bool use24hClock;
+  final FeaturedSource featuredSource;
   final String? parentalPin;
   final String? activePlaylistId;
 
@@ -61,6 +66,7 @@ class AppSettings {
     int? subtitleColor,
     bool? subtitleBackground,
     bool? use24hClock,
+    FeaturedSource? featuredSource,
     String? parentalPin,
     bool clearParentalPin = false,
     String? activePlaylistId,
@@ -78,6 +84,7 @@ class AppSettings {
         subtitleColor: subtitleColor ?? this.subtitleColor,
         subtitleBackground: subtitleBackground ?? this.subtitleBackground,
         use24hClock: use24hClock ?? this.use24hClock,
+        featuredSource: featuredSource ?? this.featuredSource,
         parentalPin: clearParentalPin ? null : (parentalPin ?? this.parentalPin),
         activePlaylistId: clearActivePlaylist ? null : (activePlaylistId ?? this.activePlaylistId),
       );
@@ -101,6 +108,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
     final localeCode = _prefs.getString('locale');
     return AppSettings(
       locale: localeCode == null ? null : Locale(localeCode),
+      // Light/system themes were removed; anything unknown falls back to dark.
       themeMode: enumOf(AppThemeMode.values, 'themeMode', AppThemeMode.dark),
       liveFormat: enumOf(LiveFormat.values, 'liveFormat', LiveFormat.ts),
       autoUpdate: enumOf(AutoUpdate.values, 'autoUpdate', AutoUpdate.daily),
@@ -111,6 +119,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       subtitleColor: _prefs.getInt('subtitleColor') ?? 0xFFFFFFFF,
       subtitleBackground: _prefs.getBool('subtitleBackground') ?? false,
       use24hClock: _prefs.getBool('use24hClock') ?? true,
+      featuredSource: enumOf(FeaturedSource.values, 'featuredSource', FeaturedSource.curated),
       parentalPin: _prefs.getString('parentalPin'),
       activePlaylistId: _prefs.getString('activePlaylistId'),
     );
@@ -132,6 +141,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setSubtitleColor(int c) => update(state.copyWith(subtitleColor: c));
   Future<void> setSubtitleBackground(bool b) => update(state.copyWith(subtitleBackground: b));
   Future<void> setUse24hClock(bool b) => update(state.copyWith(use24hClock: b));
+  Future<void> setFeaturedSource(FeaturedSource s) => update(state.copyWith(featuredSource: s));
   Future<void> setParentalPin(String? pin) =>
       update(state.copyWith(parentalPin: pin, clearParentalPin: pin == null || pin.isEmpty));
   Future<void> setActivePlaylistId(String? id) =>
@@ -163,6 +173,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await put('subtitleColor', s.subtitleColor);
     await put('subtitleBackground', s.subtitleBackground);
     await put('use24hClock', s.use24hClock);
+    await put('featuredSource', s.featuredSource.name);
     await put('parentalPin', s.parentalPin);
     await put('activePlaylistId', s.activePlaylistId);
   }

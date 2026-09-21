@@ -770,29 +770,23 @@ abstract class AppLocalizations {
   /// **'Theme'**
   String get theme;
 
-  /// No description provided for @themeSystem.
-  ///
-  /// In en, this message translates to:
-  /// **'System'**
-  String get themeSystem;
-
   /// No description provided for @themeDark.
   ///
   /// In en, this message translates to:
   /// **'Dark'**
   String get themeDark;
 
-  /// No description provided for @themeLight.
-  ///
-  /// In en, this message translates to:
-  /// **'Light'**
-  String get themeLight;
-
   /// No description provided for @themeAmoled.
   ///
   /// In en, this message translates to:
   /// **'AMOLED black'**
   String get themeAmoled;
+
+  /// No description provided for @languageSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get languageSystem;
 
   /// No description provided for @parentalControl.
   ///
@@ -1237,6 +1231,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The service is under maintenance. Please try again later.'**
   String get maintenance;
+
+  /// No description provided for @featured.
+  ///
+  /// In en, this message translates to:
+  /// **'Featured'**
+  String get featured;
+
+  /// No description provided for @recentlyAddedMovies.
+  ///
+  /// In en, this message translates to:
+  /// **'New movies'**
+  String get recentlyAddedMovies;
+
+  /// No description provided for @recentlyAddedSeries.
+  ///
+  /// In en, this message translates to:
+  /// **'New series'**
+  String get recentlyAddedSeries;
+
+  /// No description provided for @moreInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'More info'**
+  String get moreInfo;
+
+  /// No description provided for @nowLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get nowLabel;
+
+  /// No description provided for @nextLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get nextLabel;
+
+  /// No description provided for @remaining.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} left'**
+  String remaining(String time);
+
+  /// No description provided for @episodeNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Episode {n}'**
+  String episodeNumber(int n);
+
+  /// No description provided for @appearance.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get appearance;
+
+  /// No description provided for @playback.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback'**
+  String get playback;
+
+  /// No description provided for @account.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get account;
+
+  /// No description provided for @episodesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Episodes'**
+  String get episodesTitle;
+
+  /// No description provided for @featuredSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Featured content'**
+  String get featuredSource;
+
+  /// No description provided for @featuredCurated.
+  ///
+  /// In en, this message translates to:
+  /// **'Editors\' picks'**
+  String get featuredCurated;
+
+  /// No description provided for @featuredPopular.
+  ///
+  /// In en, this message translates to:
+  /// **'Most watched right now'**
+  String get featuredPopular;
+
+  /// No description provided for @featuredTmdb.
+  ///
+  /// In en, this message translates to:
+  /// **'Trending on TMDB'**
+  String get featuredTmdb;
+
+  /// No description provided for @watchNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Watch'**
+  String get watchNow;
+
+  /// No description provided for @openLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get openLink;
+
+  /// No description provided for @eventNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get eventNow;
+
+  /// No description provided for @todayAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Today at {time}'**
+  String todayAt(String time);
+
+  /// No description provided for @tomorrowAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow at {time}'**
+  String tomorrowAt(String time);
+
+  /// No description provided for @seasonsCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 season} other{{count} seasons}}'**
+  String seasonsCount(int count);
 }
 
 class _AppLocalizationsDelegate

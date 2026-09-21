@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
@@ -57,44 +58,72 @@ class ChangePlaylistScreen extends ConsumerWidget {
               action: FilledButton(onPressed: () => context.go(Routes.noPlaylist), child: Text(l10n.addPlaylist)),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(12),
-            itemCount: list.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) {
-              final p = list[i];
-              final account = decodeAccountInfo(p.accountInfo);
-              final exp = account['exp_date'] != null && account['exp_date'] != 'null'
-                  ? DateTime.tryParse(account['exp_date']!)
-                  : p.expiresAt;
-              return FocusableCard(
-                autofocus: i == 0,
-                selected: p.id == activeId,
-                scale: 1.01,
-                onTap: () => openPlaylist(context, ref, p),
-                onLongPress: () => _showActions(context, ref, p),
-                child: ListTile(
-                  leading: Icon(p.type == PlaylistType.xtream ? Icons.vpn_key : Icons.link),
-                  title: Text(p.name),
-                  subtitle: Text([
-                    p.source == PlaylistSource.portal ? l10n.playlistFromPortal : l10n.playlistLocal,
-                    if (exp != null) l10n.playlistExpires(formatDate(context, exp)),
-                    if (p.isProtected) l10n.playlistProtected,
-                  ].join(' · ')),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (p.id == activeId) const Icon(Icons.check_circle, color: Colors.green),
-                      IconButton(
-                        tooltip: l10n.edit,
-                        icon: const Icon(Icons.more_vert),
-                        onPressed: () => _showActions(context, ref, p),
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 820),
+              child: ListView.separated(
+                padding: const EdgeInsets.all(20),
+                itemCount: list.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, i) {
+                  final p = list[i];
+                  final account = decodeAccountInfo(p.accountInfo);
+                  final exp = account['exp_date'] != null && account['exp_date'] != 'null'
+                      ? DateTime.tryParse(account['exp_date']!)
+                      : p.expiresAt;
+                  final active = p.id == activeId;
+                  return FocusableCard(
+                    autofocus: i == 0,
+                    selected: active,
+                    scale: 1.01,
+                    onTap: () => openPlaylist(context, ref, p),
+                    onLongPress: () => _showActions(context, ref, p),
+                    child: GlassPanel(
+                      strong: active,
+                      radius: 12,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(color: active ? Colors.white : context.tokens.glass, borderRadius: BorderRadius.circular(10)),
+                            alignment: Alignment.center,
+                            child: Icon(p.type == PlaylistType.xtream ? Icons.vpn_key_rounded : Icons.link_rounded, size: 22, color: active ? Colors.black : Colors.white),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(p.name, style: Theme.of(context).textTheme.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text(
+                                  [
+                                    p.source == PlaylistSource.portal ? l10n.playlistFromPortal : l10n.playlistLocal,
+                                    if (exp != null) l10n.playlistExpires(formatDate(context, exp)),
+                                  ].join(' · '),
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (p.isProtected) Padding(padding: const EdgeInsets.only(left: 8), child: Icon(Icons.lock_rounded, size: 16, color: context.tokens.textMuted)),
+                          if (active) const Padding(padding: EdgeInsets.only(left: 8), child: Icon(Icons.check_circle_rounded, color: Color(0xFF30D158))),
+                          IconButton(
+                            tooltip: l10n.edit,
+                            icon: const Icon(Icons.more_horiz_rounded),
+                            onPressed: () => _showActions(context, ref, p),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              );
-            },
+                    ),
+                  );
+                },
+              ),
+            ),
           );
         },
       ),

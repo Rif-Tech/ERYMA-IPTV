@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/responsive.dart';
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -13,6 +15,7 @@ import '../../widgets/pin_dialog.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
+import '../shell/app_shell.dart' show topLeftFocusable;
 
 /// Category entry shown in the left pane (special or provider category).
 class CategoryEntry {
@@ -55,6 +58,104 @@ class SelectedCategory extends Notifier<String> {
 
 final selectedCategoryProvider = NotifierProvider.family<SelectedCategory, String, ContentKind>(SelectedCategory.new);
 
+/// Channel currently highlighted by the D-pad; feeds the now/next header.
+class _FocusedChannel extends Notifier<Channel?> {
+  @override
+  Channel? build() => null;
+  void set(Channel? c) {
+    if (state?.streamId != c?.streamId) state = c;
+  }
+}
+
+final _focusedChannelProvider = NotifierProvider<_FocusedChannel, Channel?>(_FocusedChannel.new);
+
+/// Two-column layout shared by Live, Movies and Series: translucent category pane + content.
+/// Each column is its own focus scope so D-pad Up/Down never jumps across; Left/Right cross explicitly.
+class BrowserScaffold extends StatefulWidget {
+  const BrowserScaffold({super.key, required this.kind, required this.form, required this.child});
+  final ContentKind kind;
+  final FormFactor form;
+  final Widget child;
+
+  @override
+  State<BrowserScaffold> createState() => _BrowserScaffoldState();
+}
+
+class _BrowserScaffoldState extends State<BrowserScaffold> {
+  final _pane = FocusScopeNode(debugLabel: 'categories');
+  final _content = FocusScopeNode(debugLabel: 'content');
+
+  @override
+  void dispose() {
+    _pane.dispose();
+    _content.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _onKey(FocusNode _, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final current = FocusManager.instance.primaryFocus;
+    if (current == null) return KeyEventResult.ignored;
+    // Never hand focus to a scope without focusable children: directional traversal from a bare
+    // scope reports success without moving, which would trap the remote.
+    bool enter(FocusScopeNode scope) {
+      final child = scope.focusedChild ?? topLeftFocusable(scope);
+      if (child == null) return false;
+      child.requestFocus();
+      return true;
+    }
+
+    final canMove = current is! FocusScopeNode;
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft && _content.hasFocus) {
+      if (canMove && current.focusInDirection(TraversalDirection.left)) return KeyEventResult.handled;
+      enter(_pane);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowRight && _pane.hasFocus) {
+      enter(_content);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    final form = widget.form;
+    if (form.isMobile) {
+      return Column(
+        children: [
+          SizedBox(height: top),
+          CategoryBar(kind: widget.kind),
+          Expanded(child: MediaQuery.removePadding(context: context, removeTop: true, child: widget.child)),
+        ],
+      );
+    }
+    final g = context.tokens.pageGutter;
+    return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: _onKey,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(g, top + 8, g, 0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: form.isTv ? 220 : 200, child: FocusScope(node: _pane, child: CategoryPane(kind: widget.kind))),
+            const SizedBox(width: 24),
+            Expanded(
+              child: FocusScope(
+                node: _content,
+                child: MediaQuery.removePadding(context: context, removeTop: true, child: widget.child),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class LiveScreen extends ConsumerWidget {
   const LiveScreen({super.key});
 
@@ -67,27 +168,124 @@ class LiveScreen extends ConsumerWidget {
     final channels = ref.watch(channelsProvider(ContentQuery(playlist.id, ContentKind.live, selected)));
 
     return Responsive(
-      builder: (context, form) {
-        final list = AsyncView(
-          value: channels,
-          builder: (items) => _ChannelList(playlistId: playlist.id, channels: items, form: form),
-        );
-        if (form.isMobile) {
-          return Column(
-            children: [
-              CategoryBar(kind: ContentKind.live),
-              Expanded(child: list),
-            ],
-          );
-        }
-        return Row(
+      builder: (context, form) => BrowserScaffold(
+        kind: ContentKind.live,
+        form: form,
+        child: Column(
           children: [
-            SizedBox(width: form.isTv ? 280 : 240, child: CategoryPane(kind: ContentKind.live)),
-            const VerticalDivider(width: 1),
-            Expanded(child: list),
+            if (!form.isMobile) _NowNextHeader(playlistId: playlist.id),
+            Expanded(
+              child: AsyncView(
+                value: channels,
+                builder: (items) => _ChannelList(playlistId: playlist.id, channels: items, form: form),
+              ),
+            ),
           ],
-        );
-      },
+        ),
+      ),
+    );
+  }
+}
+
+/// Large now/next card for the highlighted channel (TV/tablet).
+class _NowNextHeader extends ConsumerWidget {
+  const _NowNextHeader({required this.playlistId});
+  final String playlistId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final c = ref.watch(_focusedChannelProvider);
+    final use24h = ref.watch(settingsProvider.select((s) => s.use24hClock));
+    final text = Theme.of(context).textTheme;
+    final t = context.tokens;
+    final epgId = c?.epgChannelId;
+    final programs = c == null || epgId == null || epgId.isEmpty
+        ? const <EpgProgram>[]
+        : ref.watch(nowNextProvider(NowNextQuery(playlistId, epgId))).value ?? const <EpgProgram>[];
+    final now = programs.isNotEmpty ? programs.first : null;
+    final next = programs.length > 1 ? programs[1] : null;
+    final progress = now == null
+        ? null
+        : (DateTime.now().difference(now.start).inSeconds / now.end.difference(now.start).inSeconds.clamp(1, 1 << 30)).clamp(0.0, 1.0);
+
+    return AnimatedSize(
+      duration: t.motion,
+      curve: t.curve,
+      alignment: Alignment.topCenter,
+      child: c == null
+          ? const SizedBox(width: double.infinity)
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: GlassPanel(
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 128,
+                      height: 72,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: const Color(0xFF1C1C1E), borderRadius: BorderRadius.circular(10)),
+                      child: AppImage(c.logo, fit: BoxFit.contain, icon: Icons.live_tv, decodeWidth: 320),
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              if (c.number != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: MetaBadge('${c.number}'),
+                                ),
+                              Expanded(child: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleLarge)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          if (now == null)
+                            Text(l10n.noEpgAvailable, style: text.bodyMedium?.copyWith(color: t.textFaint))
+                          else ...[
+                            Text.rich(
+                              TextSpan(children: [
+                                TextSpan(text: '${l10n.nowLabel}  ', style: text.labelMedium?.copyWith(color: t.textFaint)),
+                                TextSpan(text: now.title, style: text.bodyLarge),
+                                TextSpan(
+                                  text: '   ${formatTime(context, now.start, use24h: use24h)} – ${formatTime(context, now.end, use24h: use24h)}',
+                                  style: text.bodySmall?.copyWith(color: t.textFaint),
+                                ),
+                              ]),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (progress != null)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: ClipRRect(borderRadius: BorderRadius.circular(1.5), child: ProgressStrip(progress, height: 3)),
+                              ),
+                            if (next != null)
+                              Text.rich(
+                                TextSpan(children: [
+                                  TextSpan(text: '${l10n.nextLabel}  ', style: text.labelMedium?.copyWith(color: t.textFaint)),
+                                  TextSpan(text: next.title, style: text.bodyMedium?.copyWith(color: t.textMuted)),
+                                  TextSpan(
+                                    text: '   ${formatTime(context, next.start, use24h: use24h)}',
+                                    style: text.bodySmall?.copyWith(color: t.textFaint),
+                                  ),
+                                ]),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
@@ -102,39 +300,96 @@ class CategoryPane extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final entries = ref.watch(categoryEntriesProvider(kind)).value ?? const [];
     final selected = ref.watch(selectedCategoryProvider(kind));
+    final text = Theme.of(context).textTheme;
+    final t = context.tokens;
     return FocusTraversalGroup(
       child: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.only(bottom: 24),
         itemCount: entries.length,
+        itemExtent: 44,
+        addAutomaticKeepAlives: false,
         itemBuilder: (context, i) {
           final e = entries[i];
           final isSelected = e.id == selected;
-          return FocusableCard(
-            scale: 1.0,
-            borderRadius: 8,
-            autofocus: i == 0,
-            onTap: () => ref.read(selectedCategoryProvider(kind).notifier).select(e.id),
-            onFocus: () => ref.read(selectedCategoryProvider(kind).notifier).select(e.id),
-            child: Container(
-              color: isSelected ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5) : null,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  if (e.icon != null) ...[Icon(e.icon, size: 20), const SizedBox(width: 8)],
-                  Expanded(
-                    child: Text(
-                      categoryLabel(l10n, e),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: isSelected ? const TextStyle(fontWeight: FontWeight.w600) : null,
-                    ),
-                  ),
-                  if (isSelected) const Icon(Icons.chevron_right, size: 18),
-                ],
-              ),
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: _CategoryItem(
+              autofocus: i == 0,
+              selected: isSelected,
+              icon: e.icon,
+              label: categoryLabel(l10n, e),
+              onSelect: () => ref.read(selectedCategoryProvider(kind).notifier).select(e.id),
+              textStyle: text.bodyMedium!,
+              muted: t.textMuted,
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Pill-shaped category row: white when focused, translucent when selected.
+class _CategoryItem extends StatefulWidget {
+  const _CategoryItem({
+    required this.autofocus,
+    required this.selected,
+    required this.label,
+    required this.onSelect,
+    required this.textStyle,
+    required this.muted,
+    this.icon,
+  });
+  final bool autofocus;
+  final bool selected;
+  final IconData? icon;
+  final String label;
+  final VoidCallback onSelect;
+  final TextStyle textStyle;
+  final Color muted;
+
+  @override
+  State<_CategoryItem> createState() => _CategoryItemState();
+}
+
+class _CategoryItemState extends State<_CategoryItem> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final bg = _focused ? Colors.white : widget.selected ? t.glassStrong : Colors.transparent;
+    final fg = _focused ? Colors.black : widget.selected ? Colors.white : widget.muted;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        autofocus: widget.autofocus,
+        onTap: widget.onSelect,
+        onFocusChange: (f) {
+          setState(() => _focused = f);
+          if (f) widget.onSelect();
+        },
+        focusColor: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: t.motion,
+          curve: t.curve,
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              if (widget.icon != null) ...[Icon(widget.icon, size: 18, color: fg), const SizedBox(width: 10)],
+              Expanded(
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: widget.textStyle.copyWith(color: fg, fontWeight: widget.selected || _focused ? FontWeight.w600 : FontWeight.w400),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -151,16 +406,16 @@ class CategoryBar extends ConsumerWidget {
     final entries = ref.watch(categoryEntriesProvider(kind)).value ?? const [];
     final selected = ref.watch(selectedCategoryProvider(kind));
     return SizedBox(
-      height: 52,
+      height: 56,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         itemCount: entries.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final e = entries[i];
           return ChoiceChip(
-            avatar: e.icon != null ? Icon(e.icon, size: 18) : null,
+            avatar: e.icon != null ? Icon(e.icon, size: 16, color: e.id == selected ? Colors.black : Colors.white) : null,
             label: Text(categoryLabel(l10n, e)),
             selected: e.id == selected,
             onSelected: (_) => ref.read(selectedCategoryProvider(kind).notifier).select(e.id),
@@ -187,13 +442,14 @@ class _ChannelList extends ConsumerWidget {
 
     return FocusTraversalGroup(
       child: ListView.builder(
-        padding: const EdgeInsets.all(8),
+        padding: EdgeInsets.fromLTRB(form.isMobile ? 12 : 0, 0, form.isMobile ? 12 : 0, 24 + MediaQuery.paddingOf(context).bottom),
         itemCount: channels.length,
-        itemExtent: form.isTv ? 76 : 68,
+        itemExtent: form.isTv ? 78 : 70,
+        addAutomaticKeepAlives: false,
         itemBuilder: (context, i) {
           final c = channels[i];
           return Padding(
-            padding: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.only(bottom: 6),
             child: _ChannelRow(
               playlistId: playlistId,
               channel: c,
@@ -202,6 +458,7 @@ class _ChannelList extends ConsumerWidget {
               favorite: favs.contains(c.streamId),
               onTap: () => playChannels(context, ref, channels, i),
               onLongPress: () => showChannelMenu(context, ref, playlistId, c),
+              onFocus: form.isMobile ? null : () => ref.read(_focusedChannelProvider.notifier).set(c),
             ),
           );
         },
@@ -219,6 +476,7 @@ class _ChannelRow extends ConsumerWidget {
     required this.favorite,
     required this.onTap,
     required this.onLongPress,
+    this.onFocus,
   });
   final String playlistId;
   final Channel channel;
@@ -227,16 +485,20 @@ class _ChannelRow extends ConsumerWidget {
   final bool favorite;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final VoidCallback? onFocus;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     String? now;
+    double? progress;
     final epgId = channel.epgChannelId;
     if (epgId != null && epgId.isNotEmpty) {
       final programs = ref.watch(nowNextProvider(NowNextQuery(playlistId, epgId))).value;
       if (programs != null && programs.isNotEmpty) {
         final p = programs.first;
-        now = '${formatTime(context, p.start, use24h: use24h)}  ${p.title}';
+        now = p.title;
+        final total = p.end.difference(p.start).inSeconds;
+        if (total > 0) progress = (DateTime.now().difference(p.start).inSeconds / total).clamp(0.0, 1.0);
       }
     }
     return ChannelTile(
@@ -244,10 +506,12 @@ class _ChannelRow extends ConsumerWidget {
       logo: channel.logo,
       number: channel.number,
       nowPlaying: now,
+      progress: progress,
       locked: locked,
       favorite: favorite,
       onTap: onTap,
       onLongPress: onLongPress,
+      onFocus: onFocus,
     );
   }
 }

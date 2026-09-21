@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/responsive.dart';
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../l10n/generated/app_localizations.dart';
 
 class _Destination {
@@ -24,30 +25,64 @@ final _destinations = [
   _Destination(Routes.settings, Icons.settings_outlined, Icons.settings, (l) => l.settings),
 ];
 
-/// Focus node attached to the sidebar's current section, so content panes can jump back to it (D-pad left).
+/// Height of the top tab bar (TV/tablet); content below it is inset through MediaQuery padding.
+const kTopBarHeight = 72.0;
+
+/// First focusable descendant in reading order (top row, then left), for entering a scope.
+FocusNode? topLeftFocusable(FocusScopeNode scope) {
+  FocusNode? best;
+  for (final n in scope.traversalDescendants) {
+    if (best == null || n.rect.top < best.rect.top - 1 || (n.rect.top < best.rect.top + 1 && n.rect.left < best.rect.left)) {
+      best = n;
+    }
+  }
+  return best;
+}
+
+/// Focus node attached to the current tab, so content panes can jump back to it (D-pad up).
 final sidebarFocusProvider = Provider<FocusNode>((ref) {
-  final node = FocusNode(debugLabel: 'sidebar');
+  final node = FocusNode(debugLabel: 'topbar');
   ref.onDispose(node.dispose);
   return node;
 });
 
-/// Scope of the content area; remembers the last focused item so Right from the sidebar returns to it.
+/// Scope of the content area; remembers the last focused item so Down from the tabs returns to it.
 final bodyScopeProvider = Provider<FocusScopeNode>((ref) {
   final node = FocusScopeNode(debugLabel: 'body');
   ref.onDispose(node.dispose);
   return node;
 });
 
-/// D-pad glue between the sidebar and the content: Flutter's directional traversal does not
-/// reliably cross the two columns, so when a move fails we hand focus over explicitly.
+/// Scope of the tab bar; keeps directional traversal from leaking into the page below.
+final _barScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'topbar-scope');
+  ref.onDispose(node.dispose);
+  return node;
+});
+
+/// Whether the top bar is currently shown (it hides while the content is scrolled down).
+final _barVisibleProvider = NotifierProvider<_BarVisible, bool>(_BarVisible.new);
+
+class _BarVisible extends Notifier<bool> {
+  @override
+  bool build() => true;
+  void set(bool v) {
+    if (state != v) state = v;
+  }
+}
+
+/// D-pad glue between the top bar and the content: Flutter's directional traversal does not
+/// reliably cross the two regions, so when a move fails we hand focus over explicitly.
 class _TvFocusBridge extends ConsumerWidget {
   const _TvFocusBridge({required this.child});
   final Widget child;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sidebar = ref.watch(sidebarFocusProvider);
+    final bar = ref.watch(sidebarFocusProvider);
     final body = ref.watch(bodyScopeProvider);
+    final barScope = ref.watch(_barScopeProvider);
+    final scroll = PrimaryScrollController.maybeOf(context);
     return Focus(
       canRequestFocus: false,
       skipTraversal: true,
@@ -55,15 +90,37 @@ class _TvFocusBridge extends ConsumerWidget {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
         final current = FocusManager.instance.primaryFocus;
         if (current == null) return KeyEventResult.ignored;
-        if (event.logicalKey == LogicalKeyboardKey.arrowLeft && body.hasFocus) {
-          if (current.focusInDirection(TraversalDirection.left) && body.hasFocus) return KeyEventResult.handled;
-          if (sidebar.context != null) sidebar.requestFocus();
+        // A bare scope (content emptied under the cursor) reports directional moves as successful
+        // without moving; treat it as "nowhere to go".
+        final canMove = current is! FocusScopeNode;
+        if (barScope.hasFocus) {
+          // Tabs form a single row: move between siblings only, never into the page.
+          final dir = switch (event.logicalKey) {
+            LogicalKeyboardKey.arrowLeft => TraversalDirection.left,
+            LogicalKeyboardKey.arrowRight => TraversalDirection.right,
+            _ => null,
+          };
+          if (dir != null) {
+            final tabs = barScope.traversalDescendants.toList()..sort((a, b) => a.rect.left.compareTo(b.rect.left));
+            final i = tabs.indexOf(current);
+            final next = i < 0 ? null : (dir == TraversalDirection.left ? (i > 0 ? tabs[i - 1] : null) : (i < tabs.length - 1 ? tabs[i + 1] : null));
+            next?.requestFocus();
+            return KeyEventResult.handled;
+          }
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp && body.hasFocus) {
+          if (canMove && current.focusInDirection(TraversalDirection.up) && body.hasFocus) return KeyEventResult.handled;
+          ref.read(_barVisibleProvider.notifier).set(true);
+          // Like the Apple TV app, reaching the tabs brings the page back to its top.
+          if (scroll != null && scroll.hasClients && scroll.offset > 0) {
+            scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
+          }
+          if (bar.context != null) bar.requestFocus();
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.arrowRight && !body.hasFocus) {
-          if (current.focusInDirection(TraversalDirection.right)) return KeyEventResult.handled;
-          body.requestFocus();
-          if (body.focusedChild == null) body.nextFocus();
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown && !body.hasFocus) {
+          final child = body.focusedChild ?? topLeftFocusable(body);
+          (child ?? body).requestFocus();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -73,19 +130,35 @@ class _TvFocusBridge extends ConsumerWidget {
   }
 }
 
-/// Responsive navigation chrome: bottom bar (phone), rail (tablet) or focusable sidebar (TV).
-class AppShell extends ConsumerWidget {
+/// Responsive navigation chrome: bottom bar (phone) or an Apple TV-style top tab bar (tablet/TV).
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.location, required this.child});
   final String location;
   final Widget child;
 
+  @override
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
   int get _index {
-    final i = _destinations.indexWhere((d) => location == d.route || location.startsWith('${d.route}/'));
+    final i = _destinations.indexWhere((d) => widget.location == d.route || widget.location.startsWith('${d.route}/'));
     return i < 0 ? 0 : i;
   }
 
+  // A new page starts scrolled to the top, so the bar must come back even without a scroll event.
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void didUpdateWidget(covariant AppShell old) {
+    super.didUpdateWidget(old);
+    if (old.location != widget.location) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(_barVisibleProvider.notifier).set(true);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final isTv = ref.watch(isTelevisionProvider);
     final form = formFactorOf(context, isTv: isTv);
@@ -98,11 +171,12 @@ class AppShell extends ConsumerWidget {
         SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
         SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
       },
-      child: child,
+      child: widget.child,
     );
 
     if (form.isMobile) {
       return Scaffold(
+        extendBody: true,
         body: body,
         bottomNavigationBar: NavigationBar(
           selectedIndex: index,
@@ -116,34 +190,46 @@ class AppShell extends ConsumerWidget {
       );
     }
 
-    final Widget nav = form.isTv
-        ? _TvSidebar(index: index, onSelected: go, sidebarNode: ref.watch(sidebarFocusProvider))
-        : NavigationRail(
-            selectedIndex: index,
-            onDestinationSelected: go,
-            extended: MediaQuery.sizeOf(context).width >= Breakpoints.desktop,
-            minExtendedWidth: 200,
-            labelType: NavigationRailLabelType.none,
-            leading: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Icon(Icons.live_tv_rounded, size: 36, color: Theme.of(context).colorScheme.primary),
-            ),
-            destinations: [
-              for (final d in _destinations)
-                NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selectedIcon), label: Text(d.label(l10n))),
-            ],
-          );
-
+    final mq = MediaQuery.of(context);
+    final visible = ref.watch(_barVisibleProvider);
     return Scaffold(
       body: _TvFocusBridge(
-        child: Row(
+        child: Stack(
           children: [
-            FocusTraversalGroup(child: nav),
-            const VerticalDivider(width: 1),
-            Expanded(
-              child: FocusScope(
-                node: ref.watch(bodyScopeProvider),
-                child: FocusTraversalGroup(child: body),
+            Positioned.fill(
+              child: NotificationListener<ScrollUpdateNotification>(
+                onNotification: (n) {
+                  // Only the outer vertical scroll drives the bar; shelves scroll horizontally.
+                  if (n.metrics.axis != Axis.vertical || n.depth != 0) return false;
+                  final hide = n.metrics.pixels > 80 && !ref.read(sidebarFocusProvider).hasFocus;
+                  ref.read(_barVisibleProvider.notifier).set(!hide);
+                  return false;
+                },
+                child: MediaQuery(
+                  data: mq.copyWith(padding: mq.padding.copyWith(top: mq.padding.top + kTopBarHeight)),
+                  child: FocusScope(
+                    node: ref.watch(bodyScopeProvider),
+                    child: FocusTraversalGroup(child: body),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedSlide(
+                offset: visible ? Offset.zero : const Offset(0, -1),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: AnimatedOpacity(
+                  opacity: visible ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: FocusScope(
+                    node: ref.watch(_barScopeProvider),
+                    child: _TopTabBar(index: index, onSelected: go, barNode: ref.watch(sidebarFocusProvider)),
+                  ),
+                ),
               ),
             ),
           ],
@@ -153,64 +239,84 @@ class AppShell extends ConsumerWidget {
   }
 }
 
-/// Leanback-style sidebar: large focus targets, the current section carries [sidebarNode].
-class _TvSidebar extends StatelessWidget {
-  const _TvSidebar({required this.index, required this.onSelected, required this.sidebarNode});
+/// Centered pill tabs over a soft black gradient, like the Apple TV app header.
+class _TopTabBar extends StatelessWidget {
+  const _TopTabBar({required this.index, required this.onSelected, required this.barNode});
   final int index;
   final ValueChanged<int> onSelected;
-  final FocusNode sidebarNode;
+  final FocusNode barNode;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final scheme = Theme.of(context).colorScheme;
+    final top = MediaQuery.paddingOf(context).top;
     return Container(
-      width: 220,
-      color: scheme.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      height: kTopBarHeight + top,
+      padding: EdgeInsets.only(top: top),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xE60A0A0A), Color(0x000A0A0A)],
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 8, bottom: 20),
+          Positioned(
+            left: context.tokens.pageGutter,
             child: Row(
               children: [
-                Icon(Icons.live_tv_rounded, size: 32, color: scheme.primary),
-                const SizedBox(width: 10),
+                const Icon(Icons.play_circle_fill_rounded, size: 26, color: Colors.white),
+                const SizedBox(width: 8),
                 Text(l10n.appName, style: Theme.of(context).textTheme.titleMedium),
               ],
             ),
           ),
-          for (final (i, d) in _destinations.indexed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: _SidebarItem(
-                icon: i == index ? d.selectedIcon : d.icon,
-                label: d.label(l10n),
-                selected: i == index,
-                focusNode: i == index ? sidebarNode : null,
-                onTap: () => onSelected(i),
-              ),
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (i, d) in _destinations.indexed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: _TabItem(
+                    icon: d.icon,
+                    label: d.label(l10n),
+                    iconOnly: d.route == Routes.search || d.route == Routes.settings,
+                    selected: i == index,
+                    focusNode: i == index ? barNode : null,
+                    onTap: () => onSelected(i),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _SidebarItem extends StatefulWidget {
-  const _SidebarItem({required this.icon, required this.label, required this.selected, required this.onTap, this.focusNode});
+class _TabItem extends StatefulWidget {
+  const _TabItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.focusNode,
+    this.iconOnly = false,
+  });
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final FocusNode? focusNode;
+  final bool iconOnly;
 
   @override
-  State<_SidebarItem> createState() => _SidebarItemState();
+  State<_TabItem> createState() => _TabItemState();
 }
 
-class _SidebarItemState extends State<_SidebarItem> {
+class _TabItemState extends State<_TabItem> {
   late FocusNode _node = widget.focusNode ?? FocusNode();
   bool _focused = false;
 
@@ -222,7 +328,7 @@ class _SidebarItemState extends State<_SidebarItem> {
 
   // The shared node moves between items when the route changes: rebind the listener.
   @override
-  void didUpdateWidget(covariant _SidebarItem old) {
+  void didUpdateWidget(covariant _TabItem old) {
     super.didUpdateWidget(old);
     final next = widget.focusNode ?? (old.focusNode == null ? _node : FocusNode());
     if (next != _node) {
@@ -246,36 +352,30 @@ class _SidebarItemState extends State<_SidebarItem> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final bg = _focused
-        ? scheme.primary
+    final t = context.tokens;
+    final bg = _focused ? Colors.white : Colors.transparent;
+    final fg = _focused
+        ? Colors.black
         : widget.selected
-            ? scheme.primaryContainer.withValues(alpha: 0.6)
-            : Colors.transparent;
-    final fg = _focused ? scheme.onPrimary : scheme.onSurface;
+            ? Colors.white
+            : t.textMuted;
+    final style = Theme.of(context).textTheme.labelLarge?.copyWith(color: fg, fontSize: 15);
     return Material(
       color: Colors.transparent,
       child: InkWell(
         focusNode: _node,
         onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(10),
+        focusColor: Colors.transparent,
+        hoverColor: Colors.transparent,
+        borderRadius: BorderRadius.circular(999),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Icon(widget.icon, color: fg),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(color: fg, fontWeight: widget.selected ? FontWeight.w600 : null),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
+          duration: t.motion,
+          curve: t.curve,
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+          padding: EdgeInsets.symmetric(horizontal: widget.iconOnly ? 12 : 18, vertical: 10),
+          child: widget.iconOnly
+              ? Icon(widget.icon, color: fg, size: 22)
+              : Text(widget.label, style: style),
         ),
       ),
     );

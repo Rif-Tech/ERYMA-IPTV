@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/responsive.dart';
 import '../../app/router.dart';
+import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
@@ -15,15 +16,8 @@ import '../../widgets/format.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
-
-final _countsProvider = FutureProvider<(int, int, int)>((ref) async {
-  final p = ref.watch(activePlaylistProvider);
-  if (p == null) return (0, 0, 0);
-  final db = ref.watch(databaseProvider);
-  // Re-run after an import completes.
-  ref.watch(playlistImportProvider);
-  return (await db.countChannels(p.id), await db.countMovies(p.id), await db.countSeries(p.id));
-});
+import 'featured_provider.dart';
+import 'hero_carousel.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -32,9 +26,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final playlist = ref.watch(activePlaylistProvider);
-    final counts = ref.watch(_countsProvider).value ?? (0, 0, 0);
     final settings = ref.watch(settingsProvider);
-    final theme = Theme.of(context);
 
     if (playlist == null) {
       return EmptyState(
@@ -44,100 +36,145 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
+    final hero = ref.watch(featuredHeroProvider((playlist.id, l10n.series)));
     final account = decodeAccountInfo(playlist.accountInfo);
     final exp = account['exp_date'] != null && account['exp_date'] != 'null' ? DateTime.tryParse(account['exp_date']!) : playlist.expiresAt;
+    final topInset = MediaQuery.paddingOf(context).top;
 
     return Responsive(
-      builder: (context, form) => ListView(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+      builder: (context, form) {
+        final heroItems = hero.value ?? const <HeroItem>[];
+        return CustomScrollView(
+          // The hero draws under the top bar; only pad when there is no hero to sit behind it.
+          slivers: [
+            SliverToBoxAdapter(
+              child: hero.isLoading && heroItems.isEmpty
+                  ? SizedBox(height: form.isMobile ? 300 : 420, child: const _HeroSkeleton())
+                  : heroItems.isEmpty
+                      ? SizedBox(height: topInset)
+                      : HeroCarousel(items: heroItems, playlistId: playlist.id, form: form),
+            ),
+            if (heroItems.isEmpty && !hero.isLoading)
+              SliverToBoxAdapter(child: _QuickLinks(form: form)),
+            SliverToBoxAdapter(child: _ContinueWatchingShelf(playlistId: playlist.id, form: form)),
+            SliverToBoxAdapter(child: _RecentChannelsShelf(playlistId: playlist.id, form: form)),
+            SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: false)),
+            SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: true)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(context.tokens.pageGutter, 28, context.tokens.pageGutter, 32 + MediaQuery.paddingOf(context).bottom),
+                child: _Footer(playlist: playlist, expires: exp, account: account, use24h: settings.use24hClock),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _HeroSkeleton extends StatelessWidget {
+  const _HeroSkeleton();
+  @override
+  Widget build(BuildContext context) {
+    final g = context.tokens.pageGutter;
+    return Stack(
+      children: [
+        const Positioned.fill(child: Skeleton(radius: 0)),
+        Positioned(
+          left: g,
+          bottom: 40,
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Skeleton(width: 360, height: 40),
+              SizedBox(height: 12),
+              Skeleton(width: 220, height: 16),
+              SizedBox(height: 20),
+              Skeleton(width: 140, height: 44, radius: 22),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown instead of the hero on freshly imported playlists with no VOD.
+class _QuickLinks extends ConsumerWidget {
+  const _QuickLinks({required this.form});
+  final FormFactor form;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final tiles = [
+      (Icons.live_tv_rounded, l10n.liveTv, Routes.live),
+      (Icons.movie_rounded, l10n.movies, Routes.movies),
+      (Icons.video_library_rounded, l10n.series, Routes.series),
+    ];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(context.tokens.pageGutter, 24, context.tokens.pageGutter, 0),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(playlist.name, style: theme.textTheme.headlineSmall),
-                      if (exp != null)
-                        Text(l10n.accountExpires(formatDate(context, exp)), style: theme.textTheme.bodySmall),
-                      if (account['max_connections'] != null)
-                        Text(l10n.activeConnections(account['active_cons'] ?? '?', account['max_connections']!),
-                            style: theme.textTheme.bodySmall),
-                    ],
+          for (final (i, t) in tiles.indexed) ...[
+            Expanded(
+              child: SizedBox(
+                height: form.isMobile ? 72 : 110,
+                child: FocusableCard(
+                  autofocus: i == 0,
+                  onTap: () => context.go(t.$3),
+                  child: GlassPanel(
+                    radius: 12,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(t.$1, size: form.isMobile ? 24 : 32),
+                        const SizedBox(width: 12),
+                        Text(t.$2, style: Theme.of(context).textTheme.titleMedium),
+                      ],
+                    ),
                   ),
                 ),
-                _Clock(use24h: settings.use24hClock),
-                IconButton(
-                  tooltip: l10n.changePlaylist,
-                  icon: const Icon(Icons.playlist_play),
-                  onPressed: () => context.push(Routes.playlists),
-                ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: GridView.count(
-              crossAxisCount: form.isMobile ? 1 : 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: form.isMobile ? 4 : 2.2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              children: [
-                _HubTile(icon: Icons.live_tv, label: l10n.liveTv, count: counts.$1, color: Colors.blue, autofocus: true, onTap: () => context.go(Routes.live)),
-                _HubTile(icon: Icons.movie, label: l10n.movies, count: counts.$2, color: Colors.deepOrange, onTap: () => context.go(Routes.movies)),
-                _HubTile(icon: Icons.video_library, label: l10n.series, count: counts.$3, color: Colors.purple, onTap: () => context.go(Routes.series)),
-              ],
-            ),
-          ),
-          _ContinueWatchingRow(playlistId: playlist.id, form: form),
-          _RecentChannelsRow(playlistId: playlist.id),
+            if (i < tiles.length - 1) const SizedBox(width: 16),
+          ],
         ],
       ),
     );
   }
 }
 
-class _HubTile extends StatelessWidget {
-  const _HubTile({required this.icon, required this.label, required this.count, required this.color, required this.onTap, this.autofocus = false});
-  final IconData icon;
-  final String label;
-  final int count;
-  final Color color;
-  final VoidCallback onTap;
-  final bool autofocus;
+class _Footer extends StatelessWidget {
+  const _Footer({required this.playlist, required this.expires, required this.account, required this.use24h});
+  final Playlist playlist;
+  final DateTime? expires;
+  final Map<String, String?> account;
+  final bool use24h;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return FocusableCard(
-      autofocus: autofocus,
-      onTap: onTap,
-      scale: 1.03,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [color.withValues(alpha: 0.85), color.withValues(alpha: 0.45)]),
+    final l10n = AppLocalizations.of(context);
+    final text = Theme.of(context).textTheme;
+    final t = context.tokens;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(playlist.name, style: text.titleSmall),
+              if (expires != null) Text(l10n.accountExpires(formatDate(context, expires!)), style: text.bodySmall?.copyWith(color: t.textFaint)),
+              if (account['max_connections'] != null)
+                Text(l10n.activeConnections(account['active_cons'] ?? '?', account['max_connections']!), style: text.bodySmall?.copyWith(color: t.textFaint)),
+            ],
+          ),
         ),
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(icon, size: 40, color: Colors.white),
-            const SizedBox(width: 16),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white)),
-                Text('$count', style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70)),
-              ],
-            ),
-          ],
-        ),
-      ),
+        _Clock(use24h: use24h),
+        const SizedBox(width: 8),
+        PillButton(compact: true, icon: Icons.playlist_play_rounded, label: l10n.changePlaylist, onPressed: () => context.push(Routes.playlists)),
+      ],
     );
   }
 }
@@ -167,127 +204,142 @@ class _ClockState extends State<_Clock> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Text(formatTime(context, _now, use24h: widget.use24h), style: Theme.of(context).textTheme.headlineSmall),
-    );
+    return Text(formatTime(context, _now, use24h: widget.use24h), style: Theme.of(context).textTheme.titleSmall?.copyWith(color: context.tokens.textMuted));
   }
 }
 
-final _continueProvider = FutureProvider.family<List<(HistoryData, Object)>, String>((ref, playlistId) async {
-  final db = ref.watch(databaseProvider);
-  final movies = await db.watchHistory(playlistId, ContentKind.vod, limit: 10).first;
-  final episodes = await db.watchHistory(playlistId, ContentKind.series, limit: 10).first;
-  final items = <(HistoryData, Object)>[];
-  for (final h in [...movies, ...episodes]..sort((a, b) => b.watchedAt.compareTo(a.watchedAt))) {
-    if (h.durationMs > 0 && h.positionMs >= h.durationMs * 0.95) continue;
-    final Object? item = h.kind == ContentKind.vod
-        ? await db.getMovie(playlistId, h.itemId)
-        : (h.parentId == null ? null : await db.getSeriesItem(playlistId, h.parentId!));
-    if (item != null) items.add((h, item));
-    if (items.length >= 12) break;
-  }
-  return items;
-});
+double _posterWidth(FormFactor form) => form.isMobile ? 120 : form.isTablet ? 150 : 170;
 
-class _ContinueWatchingRow extends ConsumerWidget {
-  const _ContinueWatchingRow({required this.playlistId, required this.form});
+class _ContinueWatchingShelf extends ConsumerWidget {
+  const _ContinueWatchingShelf({required this.playlistId, required this.form});
   final String playlistId;
   final FormFactor form;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    final items = ref.watch(_continueProvider(playlistId)).value ?? const [];
+    final items = ref.watch(continueWatchingProvider(playlistId)).value ?? const [];
     if (items.isEmpty) return const SizedBox.shrink();
-    final height = form.isMobile ? 190.0 : 240.0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(l10n.continueWatching),
-        SizedBox(
-          height: height,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              final (h, item) = items[i];
-              final progress = h.durationMs > 0 ? h.positionMs / h.durationMs : null;
-              if (item is Movie) {
-                return SizedBox(
-                  width: height * 0.62,
-                  child: PosterCard(
-                    title: item.name,
-                    imageUrl: item.poster,
-                    progress: progress,
-                    onTap: () => playMovie(context, ref, item),
-                    onLongPress: () => context.push(Routes.movie(item.streamId)),
-                  ),
-                );
-              }
-              final s = item as SeriesItem;
-              return SizedBox(
-                width: height * 0.62,
-                child: PosterCard(
-                  title: s.name,
-                  imageUrl: s.cover,
-                  progress: progress,
-                  onTap: () => context.push(Routes.seriesDetail(s.seriesId)),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
+    final w = _posterWidth(form);
+    return Shelf(
+      title: l10n.continueWatching,
+      itemCount: items.length,
+      itemWidth: w,
+      height: w * 3 / 2 + 40,
+      itemBuilder: (context, i) {
+        final (h, item) = items[i];
+        final progress = h.durationMs > 0 ? h.positionMs / h.durationMs : null;
+        final resumeAt = formatDuration(Duration(milliseconds: h.positionMs));
+        if (item is Movie) {
+          return PosterCard(
+            title: item.name,
+            imageUrl: item.poster,
+            subtitle: resumeAt,
+            progress: progress,
+            onTap: () => playMovie(context, ref, item),
+            onLongPress: () => context.push(Routes.movie(item.streamId)),
+          );
+        }
+        final s = item as SeriesItem;
+        return PosterCard(
+          title: s.name,
+          imageUrl: s.cover,
+          subtitle: '${l10n.series} · $resumeAt',
+          progress: progress,
+          onTap: () => context.push(Routes.seriesDetail(s.seriesId)),
+        );
+      },
     );
   }
 }
 
-class _RecentChannelsRow extends ConsumerWidget {
-  const _RecentChannelsRow({required this.playlistId});
+class _RecentChannelsShelf extends ConsumerWidget {
+  const _RecentChannelsShelf({required this.playlistId, required this.form});
   final String playlistId;
+  final FormFactor form;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final channels = ref.watch(channelsProvider(ContentQuery(playlistId, ContentKind.live, SpecialCategory.recent))).value ?? const [];
     if (channels.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(l10n.recentChannels),
-        SizedBox(
-          height: 110,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: channels.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              final c = channels[i];
-              return SizedBox(
-                width: 140,
-                child: FocusableCard(
-                  onTap: () => playChannels(context, ref, channels, i),
-                  child: Container(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      children: [
-                        Expanded(child: AppImage(c.logo, fit: BoxFit.contain, icon: Icons.live_tv)),
-                        const SizedBox(height: 4),
-                        Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
+    final w = form.isMobile ? 150.0 : 190.0;
+    return Shelf(
+      title: l10n.recentChannels,
+      itemCount: channels.length,
+      itemWidth: w,
+      height: w * 9 / 16,
+      itemBuilder: (context, i) {
+        final c = channels[i];
+        return FocusableCard(
+          onTap: () => playChannels(context, ref, channels, i),
+          child: GlassPanel(
+            radius: 12,
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Expanded(child: AppImage(c.logo, fit: BoxFit.contain, icon: Icons.live_tv, decodeWidth: 240)),
+                const SizedBox(height: 6),
+                Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall),
+              ],
+            ),
           ),
-        ),
-      ],
+        );
+      },
+    );
+  }
+}
+
+class _PosterShelf extends ConsumerWidget {
+  const _PosterShelf({required this.playlistId, required this.form, required this.series});
+  final String playlistId;
+  final FormFactor form;
+  final bool series;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final w = _posterWidth(form);
+    if (series) {
+      final items = ref.watch(recentSeriesProvider(playlistId)).value ?? const <SeriesItem>[];
+      if (items.isEmpty) return const SizedBox.shrink();
+      return Shelf(
+        title: l10n.recentlyAddedSeries,
+        action: l10n.seeAll,
+        onAction: () => context.go(Routes.series),
+        itemCount: items.length,
+        itemWidth: w,
+        height: w * 3 / 2 + 40,
+        itemBuilder: (context, i) {
+          final s = items[i];
+          return PosterCard(
+            title: s.name,
+            imageUrl: s.cover,
+            subtitle: s.year?.toString(),
+            onTap: () => context.push(Routes.seriesDetail(s.seriesId)),
+          );
+        },
+      );
+    }
+    final items = ref.watch(recentMoviesProvider(playlistId)).value ?? const <Movie>[];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Shelf(
+      title: l10n.recentlyAddedMovies,
+      action: l10n.seeAll,
+      onAction: () => context.go(Routes.movies),
+      itemCount: items.length,
+      itemWidth: w,
+      height: w * 3 / 2 + 40,
+      itemBuilder: (context, i) {
+        final m = items[i];
+        return PosterCard(
+          title: m.name,
+          imageUrl: m.poster,
+          subtitle: m.year?.toString(),
+          onTap: () => context.push(Routes.movie(m.streamId)),
+          onLongPress: () => playMovie(context, ref, m),
+        );
+      },
     );
   }
 }

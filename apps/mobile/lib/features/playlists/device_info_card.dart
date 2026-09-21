@@ -8,6 +8,7 @@ import '../../app/config.dart';
 import '../../core/api/portal_api.dart';
 import '../../core/device/device_identity.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../../widgets/common.dart';
 import '../../widgets/format.dart';
 import 'playlists_provider.dart';
 
@@ -23,10 +24,9 @@ class DeviceInfoCard extends ConsumerWidget {
     final session = ref.watch(deviceSessionProvider);
     final theme = Theme.of(context);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: device.when(
+    return GlassPanel(
+      padding: const EdgeInsets.all(20),
+      child: device.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Text(e.toString()),
           data: (d) {
@@ -36,11 +36,11 @@ class DeviceInfoCard extends ConsumerWidget {
               children: [
                 if (showQr)
                   Padding(
-                    padding: const EdgeInsets.only(right: 20),
+                    padding: const EdgeInsets.only(right: 24),
                     child: Container(
-                      color: Colors.white,
-                      padding: const EdgeInsets.all(8),
-                      child: QrImageView(data: portalLink, size: 160),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.all(10),
+                      child: QrImageView(data: portalLink, size: 168),
                     ),
                   ),
                 Expanded(
@@ -65,18 +65,20 @@ class DeviceInfoCard extends ConsumerWidget {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          OutlinedButton.icon(
+                          PillButton(
+                            compact: true,
+                            icon: Icons.open_in_browser_rounded,
+                            label: l10n.openPortal,
                             onPressed: () => launchUrl(Uri.parse(portalLink), mode: LaunchMode.externalApplication),
-                            icon: const Icon(Icons.open_in_browser),
-                            label: Text(l10n.openPortal),
                           ),
-                          OutlinedButton.icon(
+                          PillButton(
+                            compact: true,
+                            icon: Icons.copy_rounded,
+                            label: l10n.macAddress,
                             onPressed: () {
                               Clipboard.setData(ClipboardData(text: '${d.mac} / ${d.key}'));
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${d.mac} / ${d.key}')));
                             },
-                            icon: const Icon(Icons.copy),
-                            label: Text(l10n.macAddress),
                           ),
                         ],
                       ),
@@ -86,7 +88,6 @@ class DeviceInfoCard extends ConsumerWidget {
               ],
             );
           },
-        ),
       ),
     );
   }
@@ -110,7 +111,7 @@ class _InfoRow extends StatelessWidget {
             child: SelectableText(
               value,
               style: mono
-                  ? theme.textTheme.titleMedium?.copyWith(fontFamily: 'monospace', letterSpacing: 1.2)
+                  ? theme.textTheme.titleMedium?.copyWith(fontFamily: 'monospace', fontFamilyFallback: const ['Inter'], letterSpacing: 1.5)
                   : theme.textTheme.bodyMedium,
             ),
           ),
