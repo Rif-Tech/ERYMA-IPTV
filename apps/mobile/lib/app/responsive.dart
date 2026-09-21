@@ -1,0 +1,50 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+enum FormFactor { mobile, tablet, tv }
+
+/// Set at startup from platform info (Android `uiMode` TELEVISION, no touchscreen).
+final isTelevisionProvider = Provider<bool>((ref) => false);
+
+/// True on Android emulators, whose EGL stack rejects mpv's GL renderer.
+final isEmulatorProvider = Provider<bool>((ref) => false);
+
+abstract final class Breakpoints {
+  static const tablet = 600.0;
+  static const desktop = 1100.0;
+}
+
+FormFactor formFactorOf(BuildContext context, {bool isTv = false}) {
+  if (isTv) return FormFactor.tv;
+  final size = MediaQuery.sizeOf(context);
+  if (size.shortestSide >= Breakpoints.tablet) return FormFactor.tablet;
+  return FormFactor.mobile;
+}
+
+extension FormFactorX on FormFactor {
+  bool get isTv => this == FormFactor.tv;
+  bool get isMobile => this == FormFactor.mobile;
+
+  /// Number of poster columns for a grid of the given width.
+  int posterColumns(double width) {
+    final target = switch (this) {
+      FormFactor.mobile => 120.0,
+      FormFactor.tablet => 150.0,
+      FormFactor.tv => 180.0,
+    };
+    return (width / target).floor().clamp(2, 12);
+  }
+}
+
+/// Convenience accessor combining the TV flag and the current window size.
+class Responsive extends ConsumerWidget {
+  const Responsive({super.key, required this.builder});
+
+  final Widget Function(BuildContext context, FormFactor formFactor) builder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isTv = ref.watch(isTelevisionProvider);
+    return builder(context, formFactorOf(context, isTv: isTv));
+  }
+}
