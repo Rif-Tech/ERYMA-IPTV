@@ -5,14 +5,15 @@ import 'package:multiptv/features/content/content_providers.dart';
 import 'package:multiptv/features/home/featured_provider.dart';
 
 Movie _movie(String id, String name, {int? year}) =>
-    Movie(id: 0, playlistId: 'p', streamId: id, name: name, streamUrl: '', position: 0, year: year);
+    Movie(id: 0, playlistId: 'p', streamId: id, name: name, nameKey: normalizeTitle(name), streamUrl: '', position: 0, year: year);
 SeriesItem _series(String id, String name, {int? year}) =>
-    SeriesItem(id: 0, playlistId: 'p', seriesId: id, name: name, position: 0, year: year);
+    SeriesItem(id: 0, playlistId: 'p', seriesId: id, name: name, nameKey: normalizeTitle(name), position: 0, year: year);
 Channel _channel(String id, String name) =>
-    Channel(id: 0, playlistId: 'p', streamId: id, name: name, streamUrl: '', position: 0, tvArchive: false, tvArchiveDuration: 0);
+    Channel(id: 0, playlistId: 'p', streamId: id, name: name, nameKey: normalizeTitle(name), streamUrl: '', position: 0, tvArchive: false, tvArchiveDuration: 0);
 HistoryData _hist(String id, {String? parent}) => HistoryData(
       id: 0,
       playlistId: 'p',
+      profileId: '',
       kind: parent == null ? ContentKind.vod : ContentKind.series,
       itemId: id,
       parentId: parent,

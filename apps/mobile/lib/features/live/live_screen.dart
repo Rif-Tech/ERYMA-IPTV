@@ -163,9 +163,13 @@ class LiveScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final playlist = ref.watch(activePlaylistProvider);
-    if (playlist == null) return EmptyState(icon: Icons.live_tv, message: l10n.noChannels);
+    if (playlist == null) {
+      if (ref.watch(playlistsProvider).isLoading) return const SizedBox.shrink();
+      return EmptyState(icon: Icons.live_tv, message: l10n.noChannels);
+    }
     final selected = ref.watch(selectedCategoryProvider(ContentKind.live));
-    final channels = ref.watch(channelsProvider(ContentQuery(playlist.id, ContentKind.live, selected)));
+    final query = ContentQuery(playlist.id, ContentKind.live, selected);
+    final channels = ref.watch(channelsProvider(query));
 
     return Responsive(
       builder: (context, form) => BrowserScaffold(
@@ -177,7 +181,12 @@ class LiveScreen extends ConsumerWidget {
             Expanded(
               child: AsyncView(
                 value: channels,
-                builder: (items) => _ChannelList(playlistId: playlist.id, channels: items, form: form),
+                builder: (page) => _ChannelList(
+                  query: query,
+                  channels: page.items,
+                  form: form,
+                  onNearEnd: () => ref.read(channelsProvider(query).notifier).loadMore(),
+                ),
               ),
             ),
           ],
@@ -427,15 +436,17 @@ class CategoryBar extends ConsumerWidget {
 }
 
 class _ChannelList extends ConsumerWidget {
-  const _ChannelList({required this.playlistId, required this.channels, required this.form});
-  final String playlistId;
+  const _ChannelList({required this.query, required this.channels, required this.form, required this.onNearEnd});
+  final ContentQuery query;
   final List<Channel> channels;
   final FormFactor form;
+  final VoidCallback onNearEnd;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     if (channels.isEmpty) return EmptyState(icon: Icons.live_tv, message: l10n.noChannels);
+    final playlistId = query.playlistId;
     final locked = ref.watch(lockedChannelsProvider(playlistId)).value ?? const {};
     final favs = ref.watch(favoriteIdsProvider(CategoryQuery(playlistId, ContentKind.live))).value ?? const {};
     final use24h = ref.watch(settingsProvider.select((s) => s.use24hClock));
@@ -446,12 +457,14 @@ class _ChannelList extends ConsumerWidget {
         itemCount: channels.length,
         itemExtent: form.isTv ? 78 : 70,
         addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
         itemBuilder: (context, i) {
+          if (i >= channels.length - 40) onNearEnd();
           final c = channels[i];
           return Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: _ChannelRow(
-              playlistId: playlistId,
+              query: query,
               channel: c,
               use24h: use24h,
               locked: locked.contains(c.streamId),
@@ -469,7 +482,7 @@ class _ChannelList extends ConsumerWidget {
 
 class _ChannelRow extends ConsumerWidget {
   const _ChannelRow({
-    required this.playlistId,
+    required this.query,
     required this.channel,
     required this.use24h,
     required this.locked,
@@ -478,7 +491,7 @@ class _ChannelRow extends ConsumerWidget {
     required this.onLongPress,
     this.onFocus,
   });
-  final String playlistId;
+  final ContentQuery query;
   final Channel channel;
   final bool use24h;
   final bool locked;
@@ -493,7 +506,8 @@ class _ChannelRow extends ConsumerWidget {
     double? progress;
     final epgId = channel.epgChannelId;
     if (epgId != null && epgId.isNotEmpty) {
-      final programs = ref.watch(nowNextProvider(NowNextQuery(playlistId, epgId))).value;
+      // One shared query for the whole list; this row only rebuilds when its own entry changes.
+      final programs = ref.watch(nowNextMapProvider(query).select((m) => m.value?[epgId]));
       if (programs != null && programs.isNotEmpty) {
         final p = programs.first;
         now = p.title;

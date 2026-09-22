@@ -10,6 +10,7 @@ export type AppConfigValues = {
   min_version: string;
   latest_version: string;
   apk_link: string;
+  portal_url: string;
   trial_days: number;
 };
 
@@ -41,6 +42,11 @@ export function ConfigForm({ values }: { values: AppConfigValues }) {
       <div>
         <label className="label" htmlFor="apk_link">Lien de téléchargement (APK / store)</label>
         <input id="apk_link" name="apk_link" className="input" defaultValue={values.apk_link} placeholder="https://…" />
+      </div>
+      <div>
+        <label className="label" htmlFor="portal_url">URL publique du portail (QR codes d&apos;appairage)</label>
+        <input id="portal_url" name="portal_url" type="url" className="input" defaultValue={values.portal_url} placeholder="https://portail.example.com" />
+        <p className="mt-1 text-xs text-slate-500">Adresse que les téléviseurs et téléphones affichent et encodent dans le QR code. Elle doit être joignable depuis le réseau des appareils (jamais « localhost »).</p>
       </div>
       <div>
         <label className="label" htmlFor="message">Message affiché (maintenance)</label>

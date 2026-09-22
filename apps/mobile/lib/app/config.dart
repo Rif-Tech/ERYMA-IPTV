@@ -12,14 +12,31 @@ abstract final class AppConfig {
     defaultValue: 'sb_publishable_TYELYS4jPwntkdewcn1t_Q_7pTrgEXX',
   );
 
-  /// Public URL of the web portal shown to the user (QR code, login link).
-  static const portalUrl = String.fromEnvironment(
+  /// Build-time portal URL, used only until the server tells us the real one (`app-info.portal_url`).
+  static const _portalUrlDefine = String.fromEnvironment(
     'PORTAL_URL',
-    defaultValue: 'http://localhost:3000',
+    defaultValue: 'http://100.88.208.52:3000',
   );
 
-  static String portalLoginUrl(String mac, String key) =>
-      '$portalUrl/manage-playlists/login?mac=${Uri.encodeQueryComponent(mac)}&key=${Uri.encodeQueryComponent(key)}';
+  /// Portal URL received from the server (admin config), remembered across launches.
+  static String? runtimePortalUrl;
+
+  /// Public URL of the web portal shown to the user (QR code, pairing instructions).
+  ///
+  /// The server value wins: a TV box must never show a `localhost` or stale build-time address.
+  static String get portalUrl => (runtimePortalUrl ?? _portalUrlDefine).replaceFirst(RegExp(r'/+$'), '');
+
+  /// Host shown to the user (`portail.example.com`), without scheme.
+  static String get portalHost => portalUrl.replaceFirst(RegExp(r'^https?://'), '');
+
+  /// Web page that links a device to an account; the QR code embeds the one-time pairing token.
+  static String activateUrl(String token) => '$portalUrl/activate?token=${Uri.encodeQueryComponent(token)}';
+
+  /// Web page that adds a playlist to the account of an already paired device.
+  static String addPlaylistUrl(String token) => '$portalUrl/add-playlist?token=${Uri.encodeQueryComponent(token)}';
+
+  /// Account area of the portal (devices, profiles, playlists).
+  static String get accountUrl => '$portalUrl/account';
 
   static const appName = 'MultIPTV';
 }

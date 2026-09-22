@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -27,11 +29,25 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   late final _controller = TextEditingController(text: ref.read(_queryProvider));
+  Timer? _debounce;
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  // Three table scans per keystroke is what made typing stutter; wait for a pause instead.
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    if (v.isEmpty) {
+      ref.read(_queryProvider.notifier).set('');
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) ref.read(_queryProvider.notifier).set(v);
+    });
   }
 
   @override
@@ -70,12 +86,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           },
                         ),
                 ),
-                onChanged: (v) => ref.read(_queryProvider.notifier).set(v),
+                onChanged: _onChanged,
               ),
             ),
           ),
           Expanded(
             child: results.when(
+              skipLoadingOnReload: true,
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => EmptyState(icon: Icons.error_outline, message: e.toString()),
               data: (r) {

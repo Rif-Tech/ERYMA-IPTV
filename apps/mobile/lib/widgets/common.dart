@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/responsive.dart';
 import '../app/theme.dart';
+import '../core/images/artwork_cache.dart';
 
 /// Focus-aware card: scales up and shows a white ring when focused (D-pad) or hovered.
-class FocusableCard extends StatefulWidget {
+class FocusableCard extends ConsumerStatefulWidget {
   const FocusableCard({
     super.key,
     required this.child,
@@ -41,21 +43,26 @@ class FocusableCard extends StatefulWidget {
   final bool ring;
 
   @override
-  State<FocusableCard> createState() => _FocusableCardState();
+  ConsumerState<FocusableCard> createState() => _FocusableCardState();
 }
 
-class _FocusableCardState extends State<FocusableCard> {
+class _FocusableCardState extends ConsumerState<FocusableCard> {
   bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final lite = ref.watch(performanceModeProvider);
     final radius = BorderRadius.circular(widget.borderRadius);
     final ringColor = _focused && widget.ring
         ? Colors.white
         : widget.selected
             ? const Color(0x66FFFFFF)
             : Colors.transparent;
+    // Blurred shadows are rasterised per frame while the scale animates: keep them tight on weak GPUs.
+    final shadow = _focused
+        ? [BoxShadow(color: const Color(0x99000000), blurRadius: lite ? 6 : 24, offset: Offset(0, lite ? 3 : 10))]
+        : null;
     return AnimatedScale(
       scale: _focused ? (widget.scale ?? t.focusScale) : 1,
       duration: t.motion,
@@ -79,9 +86,7 @@ class _FocusableCardState extends State<FocusableCard> {
             decoration: BoxDecoration(
               borderRadius: radius,
               border: Border.all(color: ringColor, width: 2.5, strokeAlign: BorderSide.strokeAlignOutside),
-              boxShadow: _focused
-                  ? const [BoxShadow(color: Color(0x99000000), blurRadius: 24, offset: Offset(0, 10))]
-                  : null,
+              boxShadow: shadow,
             ),
             child: ClipRRect(borderRadius: radius, child: RepaintBoundary(child: widget.child)),
           ),
@@ -92,7 +97,7 @@ class _FocusableCardState extends State<FocusableCard> {
 }
 
 /// Network image with a neutral placeholder; safe for missing/invalid URLs.
-class AppImage extends StatelessWidget {
+class AppImage extends ConsumerWidget {
   const AppImage(
     this.url, {
     super.key,
@@ -117,8 +122,9 @@ class AppImage extends StatelessWidget {
   static bool isValid(String? u) => u != null && u.startsWith('http');
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final lite = ref.watch(performanceModeProvider);
     final placeholder = Container(
       width: width,
       height: height,
@@ -130,6 +136,7 @@ class AppImage extends StatelessWidget {
     if (!isValid(u)) return placeholder;
     return CachedNetworkImage(
       imageUrl: u!,
+      cacheManager: ArtworkCache.instance,
       fit: fit,
       width: width,
       height: height,
@@ -138,8 +145,10 @@ class AppImage extends StatelessWidget {
       filterQuality: FilterQuality.low,
       placeholder: (_, _) => placeholder,
       errorWidget: (_, _, _) => placeholder,
-      fadeInDuration: const Duration(milliseconds: 150),
-      fadeOutDuration: const Duration(milliseconds: 100),
+      // Each fade composites two layers per card while a shelf scrolls in; skip it on weak GPUs.
+      fadeInDuration: lite ? Duration.zero : const Duration(milliseconds: 150),
+      fadeOutDuration: lite ? Duration.zero : const Duration(milliseconds: 100),
+      placeholderFadeInDuration: Duration.zero,
     );
   }
 }
@@ -311,6 +320,7 @@ class BackdropArt extends StatelessWidget {
     return ClipRect(
       child: CachedNetworkImage(
         imageUrl: backdrop!,
+        cacheManager: ArtworkCache.instance,
         fit: BoxFit.cover,
         alignment: Alignment.topCenter,
         memCacheWidth: 1280,
@@ -323,26 +333,34 @@ class BackdropArt extends StatelessWidget {
   }
 }
 
-class _BlurredPoster extends StatelessWidget {
+class _BlurredPoster extends ConsumerWidget {
   const _BlurredPoster({required this.url, required this.showPoster});
   final String? url;
   final bool showPoster;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (!AppImage.isValid(url)) return const ColoredBox(color: Color(0xFF141416));
+    final lite = ref.watch(performanceModeProvider);
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Blur a tiny decode: cheap even on TV GPUs, and it only re-renders on item change.
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28, tileMode: TileMode.mirror),
-          child: Transform.scale(
+        // A gaussian blur over the whole hero is a full-screen GPU pass per frame; on weak boxes a
+        // 32 px decode stretched with bilinear filtering gives the same soft wash for free.
+        if (lite)
+          Transform.scale(
             scale: 1.15,
-            child: AppImage(url, fit: BoxFit.cover, decodeWidth: 240, icon: Icons.image_outlined),
+            child: AppImage(url, fit: BoxFit.cover, decodeWidth: 32, icon: Icons.image_outlined),
+          )
+        else
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28, tileMode: TileMode.mirror),
+            child: Transform.scale(
+              scale: 1.15,
+              child: AppImage(url, fit: BoxFit.cover, decodeWidth: 240, icon: Icons.image_outlined),
+            ),
           ),
-        ),
-        const DecoratedBox(decoration: BoxDecoration(color: Color(0x4D000000))),
+        DecoratedBox(decoration: BoxDecoration(color: lite ? const Color(0x80000000) : const Color(0x4D000000))),
         if (showPoster)
           Align(
             alignment: Alignment.centerRight,
@@ -387,7 +405,7 @@ class ProgressStrip extends StatelessWidget {
 }
 
 /// Horizontal shelf with a title and fixed-extent items; the backbone of the Apple TV-style layout.
-class Shelf extends StatelessWidget {
+class Shelf extends ConsumerWidget {
   const Shelf({
     super.key,
     required this.title,
@@ -412,8 +430,9 @@ class Shelf extends StatelessWidget {
   final EdgeInsets? padding;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final gutter = padding ?? EdgeInsets.symmetric(horizontal: context.tokens.pageGutter);
+    final lite = ref.watch(performanceModeProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -429,8 +448,11 @@ class Shelf extends StatelessWidget {
               padding: gutter.copyWith(top: 12, bottom: 12),
               itemCount: itemCount,
               itemExtent: itemWidth + gap,
-              scrollCacheExtent: ScrollCacheExtent.pixels(itemWidth * 4),
+              // Off-screen cards each hold a decoded image; keep the prefetch window small on 2 GB boxes.
+              scrollCacheExtent: ScrollCacheExtent.pixels(itemWidth * (lite ? 1.5 : 4)),
               addAutomaticKeepAlives: false,
+              // FocusableCard already isolates each item in its own layer.
+              addRepaintBoundaries: false,
               itemBuilder: (context, i) => Padding(
                 padding: EdgeInsets.only(right: gap),
                 child: itemBuilder(context, i),
@@ -492,16 +514,16 @@ class PillButton extends StatelessWidget {
 }
 
 /// "Now" badge with a pulsing red dot, for events that are about to start or running.
-class LiveBadge extends StatefulWidget {
+class LiveBadge extends ConsumerStatefulWidget {
   const LiveBadge(this.label, {super.key});
   final String label;
 
   @override
-  State<LiveBadge> createState() => _LiveBadgeState();
+  ConsumerState<LiveBadge> createState() => _LiveBadgeState();
 }
 
-class _LiveBadgeState extends State<LiveBadge> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+class _LiveBadgeState extends ConsumerState<LiveBadge> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
 
   @override
   void dispose() {
@@ -511,17 +533,28 @@ class _LiveBadgeState extends State<LiveBadge> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    // A perpetual ticker keeps the whole hero repainting; static dot on weak hardware.
+    final lite = ref.watch(performanceModeProvider);
+    if (lite) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
     final style = Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700, letterSpacing: 0.6);
+    final dot = Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle));
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 3, 9, 3),
       decoration: BoxDecoration(color: const Color(0xFFE5323C), borderRadius: BorderRadius.circular(4)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          FadeTransition(
-            opacity: CurvedAnimation(parent: _c, curve: Curves.easeInOut).drive(Tween(begin: 0.25, end: 1)),
-            child: Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
-          ),
+          if (lite)
+            dot
+          else
+            FadeTransition(
+              opacity: CurvedAnimation(parent: _c, curve: Curves.easeInOut).drive(Tween(begin: 0.25, end: 1)),
+              child: dot,
+            ),
           const SizedBox(width: 6),
           Text(widget.label.toUpperCase(), style: style),
         ],
@@ -578,18 +611,18 @@ class GlassPanel extends StatelessWidget {
 }
 
 /// Animated loading placeholder block (no external package).
-class Skeleton extends StatefulWidget {
+class Skeleton extends ConsumerStatefulWidget {
   const Skeleton({super.key, this.width, this.height, this.radius = 12});
   final double? width;
   final double? height;
   final double radius;
 
   @override
-  State<Skeleton> createState() => _SkeletonState();
+  ConsumerState<Skeleton> createState() => _SkeletonState();
 }
 
-class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+class _SkeletonState extends ConsumerState<Skeleton> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
 
   @override
   void dispose() {
@@ -599,6 +632,16 @@ class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
+    // Shimmer means a gradient repaint per placeholder per frame; a flat block is enough on weak GPUs.
+    if (ref.watch(performanceModeProvider)) {
+      _c.stop();
+      return Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(widget.radius), color: const Color(0xFF1C1C1E)),
+      );
+    }
+    if (!_c.isAnimating) _c.repeat();
     return AnimatedBuilder(
       animation: _c,
       builder: (_, _) => Container(

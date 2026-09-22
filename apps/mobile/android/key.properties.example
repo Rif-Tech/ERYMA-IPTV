@@ -1,0 +1,7 @@
+# Copy to android/key.properties (git-ignored) to sign release builds.
+# Create the keystore once:
+#   keytool -genkey -v -keystore multiptv-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias multiptv
+storeFile=../multiptv-release.jks
+storePassword=CHANGE_ME
+keyAlias=multiptv
+keyPassword=CHANGE_ME

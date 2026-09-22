@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/db/database.dart';
+import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
+import '../../core/text/normalize.dart';
 import '../playlists/playlists_provider.dart';
 
 /// Pseudo category ids used by the UI on top of provider categories.
@@ -64,108 +68,95 @@ final historyProvider = StreamProvider.family<List<HistoryData>, CategoryQuery>(
   return ref.watch(databaseProvider).watchHistory(q.playlistId, q.kind);
 });
 
-final channelsProvider = FutureProvider.family<List<Channel>, ContentQuery>((ref, q) async {
-  final db = ref.watch(databaseProvider);
-  final sort = ref.watch(settingsProvider.select((s) => s.sortOrder));
-  final hidden = await ref.watch(hiddenCategoriesProvider(CategoryQuery(q.playlistId, ContentKind.live)).future);
-  List<Channel> list;
-  if (q.categoryId == SpecialCategory.all) {
-    list = await db.getChannels(q.playlistId);
-  } else if (q.categoryId == SpecialCategory.favorites) {
-    final favs = await ref.watch(favoriteIdsProvider(CategoryQuery(q.playlistId, ContentKind.live)).future);
-    list = (await db.getChannels(q.playlistId)).where((c) => favs.contains(c.streamId)).toList();
-  } else if (q.categoryId == SpecialCategory.recent) {
-    final hist = await ref.watch(historyProvider(CategoryQuery(q.playlistId, ContentKind.live)).future);
-    final ids = hist.map((h) => h.itemId).toList();
-    final all = await db.getChannels(q.playlistId);
-    final byId = {for (final c in all) c.streamId: c};
-    list = [for (final id in ids) if (byId[id] != null) byId[id]!];
-    return list;
-  } else if (q.categoryId.startsWith(SpecialCategory.groupPrefix)) {
-    final groupId = int.parse(q.categoryId.substring(SpecialCategory.groupPrefix.length));
-    return db.getGroupChannels(q.playlistId, groupId);
-  } else {
-    list = await db.getChannels(q.playlistId, categoryId: q.categoryId);
-  }
-  list = list.where((c) => c.categoryId == null || !hidden.contains(c.categoryId)).toList();
-  return _sort(list, sort, (c) => c.name, added: null, rating: null);
-});
+final channelsProvider = AsyncNotifierProvider.autoDispose.family<PagedContent<Channel>, Paged<Channel>, ContentQuery>(PagedContent<Channel>.new);
+final moviesProvider = AsyncNotifierProvider.autoDispose.family<PagedContent<Movie>, Paged<Movie>, ContentQuery>(PagedContent<Movie>.new);
+final seriesProvider = AsyncNotifierProvider.autoDispose.family<PagedContent<SeriesItem>, Paged<SeriesItem>, ContentQuery>(PagedContent<SeriesItem>.new);
 
-final moviesProvider = FutureProvider.family<List<Movie>, ContentQuery>((ref, q) async {
-  final db = ref.watch(databaseProvider);
-  final sort = ref.watch(settingsProvider.select((s) => s.sortOrder));
-  final hidden = await ref.watch(hiddenCategoriesProvider(CategoryQuery(q.playlistId, ContentKind.vod)).future);
-  List<Movie> list;
-  if (q.categoryId == SpecialCategory.all) {
-    list = await db.getMovies(q.playlistId);
-  } else if (q.categoryId == SpecialCategory.favorites) {
-    final favs = await ref.watch(favoriteIdsProvider(CategoryQuery(q.playlistId, ContentKind.vod)).future);
-    list = (await db.getMovies(q.playlistId)).where((m) => favs.contains(m.streamId)).toList();
-  } else if (q.categoryId == SpecialCategory.recent) {
-    final hist = await ref.watch(historyProvider(CategoryQuery(q.playlistId, ContentKind.vod)).future);
-    final all = await db.getMovies(q.playlistId);
-    final byId = {for (final m in all) m.streamId: m};
-    return [for (final h in hist) if (byId[h.itemId] != null) byId[h.itemId]!];
-  } else {
-    list = await db.getMovies(q.playlistId, categoryId: q.categoryId);
-  }
-  list = list.where((m) => m.categoryId == null || !hidden.contains(m.categoryId)).toList();
-  return _sort(list, sort, (m) => m.name, added: (m) => m.addedAt, rating: (m) => m.rating);
-});
+/// One loaded window of a listing. `hasMore` drives infinite scrolling in the grids.
+@immutable
+class Paged<T> {
+  const Paged(this.items, {required this.hasMore});
+  final List<T> items;
+  final bool hasMore;
 
-final seriesProvider = FutureProvider.family<List<SeriesItem>, ContentQuery>((ref, q) async {
-  final db = ref.watch(databaseProvider);
-  final sort = ref.watch(settingsProvider.select((s) => s.sortOrder));
-  final hidden = await ref.watch(hiddenCategoriesProvider(CategoryQuery(q.playlistId, ContentKind.series)).future);
-  List<SeriesItem> list;
-  if (q.categoryId == SpecialCategory.all) {
-    list = await db.getSeries(q.playlistId);
-  } else if (q.categoryId == SpecialCategory.favorites) {
-    final favs = await ref.watch(favoriteIdsProvider(CategoryQuery(q.playlistId, ContentKind.series)).future);
-    list = (await db.getSeries(q.playlistId)).where((s) => favs.contains(s.seriesId)).toList();
-  } else if (q.categoryId == SpecialCategory.recent) {
-    final hist = await ref.watch(historyProvider(CategoryQuery(q.playlistId, ContentKind.series)).future);
-    final all = await db.getSeries(q.playlistId);
-    final byId = {for (final s in all) s.seriesId: s};
-    final seen = <String>{};
-    return [
-      for (final h in hist)
-        if (h.parentId != null && byId[h.parentId] != null && seen.add(h.parentId!)) byId[h.parentId]!,
-    ];
-  } else {
-    list = await db.getSeries(q.playlistId, categoryId: q.categoryId);
-  }
-  list = list.where((s) => s.categoryId == null || !hidden.contains(s.categoryId)).toList();
-  return _sort(list, sort, (s) => s.name, added: (s) => s.addedAt, rating: (s) => s.rating);
-});
-
-List<T> _sort<T>(
-  List<T> list,
-  SortOrder order,
-  String Function(T) name, {
-  DateTime? Function(T)? added,
-  double? Function(T)? rating,
-}) {
-  final copy = List<T>.of(list);
-  int cmpName(T a, T b) => name(a).toLowerCase().compareTo(name(b).toLowerCase());
-  switch (order) {
-    case SortOrder.defaultOrder:
-      break;
-    case SortOrder.az:
-      copy.sort(cmpName);
-    case SortOrder.za:
-      copy.sort((a, b) => cmpName(b, a));
-    case SortOrder.added:
-      if (added != null) {
-        copy.sort((a, b) => (added(b) ?? DateTime(0)).compareTo(added(a) ?? DateTime(0)));
-      }
-    case SortOrder.rating:
-      if (rating != null) {
-        copy.sort((a, b) => (rating(b) ?? 0).compareTo(rating(a) ?? 0));
-      }
-  }
-  return copy;
+  static const empty = Paged<Never>([], hasMore: false);
 }
+
+/// Catalogue listing loaded page by page straight from SQLite; filtering and sorting never run in
+/// Dart, so a 30 000-title playlist costs the same as a 300-title one.
+class PagedContent<T> extends AsyncNotifier<Paged<T>> {
+  PagedContent(this.query);
+  final ContentQuery query;
+
+  static const pageSize = 200;
+  bool _loadingMore = false;
+  late ContentFilter _filter;
+
+  @override
+  Future<Paged<T>> build() async {
+    // Only a finished import changes the catalogue; progress ticks must not trigger reloads.
+    ref.watch(playlistImportProvider.select((s) => (s.playlistId, s.progress?.stage == ImportStage.done)));
+    // The pseudo-categories depend on live tables: favourites and history streams.
+    if (query.categoryId == SpecialCategory.favorites) ref.watch(favoriteIdsProvider(CategoryQuery(query.playlistId, query.kind)));
+    if (query.categoryId == SpecialCategory.recent) ref.watch(historyProvider(CategoryQuery(query.playlistId, query.kind)));
+    final hidden = await ref.watch(hiddenCategoriesProvider(CategoryQuery(query.playlistId, query.kind)).future);
+    final sort = ref.watch(settingsProvider.select((s) => s.sortOrder));
+    _filter = ContentFilter(
+      categoryId: switch (query.categoryId) {
+        SpecialCategory.all || SpecialCategory.favorites || SpecialCategory.recent => null,
+        final id => id,
+      },
+      hiddenCategories: hidden,
+      favoritesOnly: query.categoryId == SpecialCategory.favorites,
+      recentOnly: query.categoryId == SpecialCategory.recent,
+      sort: switch (sort) {
+        SortOrder.defaultOrder => ContentSort.position,
+        SortOrder.az => ContentSort.az,
+        SortOrder.za => ContentSort.za,
+        SortOrder.added => ContentSort.added,
+        SortOrder.rating => ContentSort.rating,
+      },
+      limit: pageSize,
+    );
+    final items = await _fetch(0);
+    return Paged(items, hasMore: items.length >= pageSize);
+  }
+
+  Future<void> loadMore() async {
+    final current = state.value;
+    if (current == null || !current.hasMore || _loadingMore) return;
+    _loadingMore = true;
+    try {
+      final next = await _fetch(current.items.length);
+      if (!ref.mounted) return;
+      state = AsyncData(Paged([...current.items, ...next], hasMore: next.length >= pageSize));
+    } finally {
+      _loadingMore = false;
+    }
+  }
+
+  Future<List<T>> _fetch(int offset) async {
+    final db = ref.read(databaseProvider);
+    if (query.categoryId.startsWith(SpecialCategory.groupPrefix)) {
+      if (offset > 0) return const [];
+      final groupId = int.parse(query.categoryId.substring(SpecialCategory.groupPrefix.length));
+      return (await db.getGroupChannels(query.playlistId, groupId)).cast<T>();
+    }
+    final filter = _filter.page(offset);
+    final rows = switch (query.kind) {
+      ContentKind.live => await db.queryChannels(query.playlistId, filter),
+      ContentKind.vod => await db.queryMovies(query.playlistId, filter),
+      ContentKind.series => await db.querySeries(query.playlistId, filter),
+    };
+    return rows.cast<T>();
+  }
+}
+
+/// Every channel of the playlist, for management screens (parental locks, groups) only.
+final allChannelsProvider = FutureProvider.autoDispose.family<List<Channel>, String>((ref, playlistId) {
+  ref.watch(playlistImportProvider.select((s) => (s.playlistId, s.progress?.stage == ImportStage.done)));
+  return ref.watch(databaseProvider).getChannels(playlistId);
+});
 
 // ---------------------------------------------------------------------------
 
@@ -181,11 +172,32 @@ class NowNextQuery {
   int get hashCode => Object.hash(playlistId, epgChannelId);
 }
 
-final nowNextProvider = FutureProvider.family<List<EpgProgram>, NowNextQuery>((ref, q) {
+final nowNextProvider = FutureProvider.autoDispose.family<List<EpgProgram>, NowNextQuery>((ref, q) {
   return ref.watch(databaseProvider).getNowNext(q.playlistId, q.epgChannelId);
 });
 
-final programsProvider = FutureProvider.family<List<EpgProgram>, NowNextQuery>((ref, q) {
+/// Now/next for every channel currently listed under [query], fetched in one query and refreshed
+/// when the earliest programme ends (instead of one query and one provider per visible row).
+final nowNextMapProvider = FutureProvider.autoDispose.family<Map<String, List<EpgProgram>>, ContentQuery>((ref, query) async {
+  final page = await ref.watch(channelsProvider(query).future);
+  final ids = [for (final c in page.items) if (c.epgChannelId != null && c.epgChannelId!.isNotEmpty) c.epgChannelId!];
+  if (ids.isEmpty) return const {};
+  final now = DateTime.now();
+  final map = await ref.watch(databaseProvider).getNowNextForChannels(query.playlistId, ids, now: now);
+  DateTime? nextChange;
+  for (final programs in map.values) {
+    final end = programs.firstOrNull?.end;
+    if (end != null && (nextChange == null || end.isBefore(nextChange))) nextChange = end;
+  }
+  if (nextChange != null) {
+    final delay = nextChange.difference(now);
+    final timer = Timer(delay < const Duration(seconds: 30) ? const Duration(seconds: 30) : delay, ref.invalidateSelf);
+    ref.onDispose(timer.cancel);
+  }
+  return map;
+});
+
+final programsProvider = FutureProvider.autoDispose.family<List<EpgProgram>, NowNextQuery>((ref, q) {
   final now = DateTime.now();
   return ref.watch(databaseProvider).getPrograms(
         q.playlistId,
@@ -195,7 +207,7 @@ final programsProvider = FutureProvider.family<List<EpgProgram>, NowNextQuery>((
       );
 });
 
-final episodesProvider = FutureProvider.family<List<Episode>, String>((ref, seriesId) async {
+final episodesProvider = FutureProvider.autoDispose.family<List<Episode>, String>((ref, seriesId) async {
   final playlist = ref.watch(activePlaylistProvider);
   if (playlist == null) return const [];
   final db = ref.watch(databaseProvider);
@@ -212,12 +224,12 @@ final channelGroupsProvider = StreamProvider.family<List<ChannelGroup>, String>(
 // Home shelves
 
 final recentMoviesProvider = FutureProvider.family<List<Movie>, String>((ref, playlistId) {
-  ref.watch(playlistImportProvider);
+  ref.watch(playlistImportProvider.select((s) => (s.playlistId, s.progress?.stage == ImportStage.done)));
   return ref.watch(databaseProvider).getRecentMovies(playlistId);
 });
 
 final recentSeriesProvider = FutureProvider.family<List<SeriesItem>, String>((ref, playlistId) {
-  ref.watch(playlistImportProvider);
+  ref.watch(playlistImportProvider.select((s) => (s.playlistId, s.progress?.stage == ImportStage.done)));
   return ref.watch(databaseProvider).getRecentSeries(playlistId);
 });
 
@@ -362,15 +374,16 @@ class SearchResults {
   bool get isEmpty => channels.isEmpty && movies.isEmpty && series.isEmpty;
 }
 
-final searchProvider = FutureProvider.family<SearchResults, String>((ref, query) async {
+final searchProvider = FutureProvider.autoDispose.family<SearchResults, String>((ref, query) async {
   final playlist = ref.watch(activePlaylistProvider);
-  final q = query.trim();
-  if (playlist == null || q.length < 2) return const SearchResults();
+  // Same normalisation as `name_key`, so "Bein" finds "|FR| beIN Sports 1" and `%`/`_` cannot leak into LIKE.
+  final key = normalizeTitle(query);
+  if (playlist == null || key.length < 2) return const SearchResults();
   final db = ref.watch(databaseProvider);
   final results = await Future.wait<List<dynamic>>([
-    db.searchChannels(playlist.id, q),
-    db.searchMovies(playlist.id, q),
-    db.searchSeries(playlist.id, q),
+    db.searchChannels(playlist.id, key),
+    db.searchMovies(playlist.id, key),
+    db.searchSeries(playlist.id, key),
   ]);
   return SearchResults(
     channels: results[0].cast<Channel>(),

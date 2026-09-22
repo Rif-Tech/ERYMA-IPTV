@@ -1,53 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/portal_api.dart';
 import '../../core/db/database.dart';
 import '../../core/device/device_identity.dart';
+import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
+import '../../core/text/normalize.dart';
 import '../content/content_providers.dart';
 import '../playlists/playlists_provider.dart';
 
-// ---------------------------------------------------------------------------
-// Title normalisation shared by matching and anonymous watch statistics.
-
-const _tags = {
-  'fr', 'en', 'vf', 'vff', 'vfq', 'vo', 'vost', 'vostfr', 'multi', 'truefrench', 'french', 'subfrench',
-  '4k', 'uhd', 'hd', 'fhd', 'sd', 'hdr', 'hevc', 'x264', 'x265', 'h264', 'h265', '1080p', '720p', '2160p', '480p',
-};
-
-const _accents = {
-  'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a', 'å': 'a',
-  'ç': 'c',
-  'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-  'î': 'i', 'ï': 'i', 'í': 'i', 'ì': 'i',
-  'ô': 'o', 'ö': 'o', 'ó': 'o', 'ò': 'o', 'õ': 'o',
-  'û': 'u', 'ü': 'u', 'ù': 'u', 'ú': 'u',
-  'ÿ': 'y', 'ñ': 'n', 'œ': 'oe', 'æ': 'ae', 'ß': 'ss',
-};
-
-/// `|FR| Mocro Maffia: Taxi (2024) VF 4K` → `mocro maffia taxi`.
-String normalizeTitle(String raw) {
-  var s = raw.toLowerCase();
-  s = s.replaceAll(RegExp(r'[\[\]|{}]'), ' ');
-  s = s.replaceAll(RegExp(r'\((19|20)\d{2}\)'), ' ');
-  s = s.replaceAll('&amp;', '&');
-  s = s.split('').map((c) => _accents[c] ?? c).join();
-  s = s.replaceAll('&', ' and ');
-  s = s.replaceAll(RegExp(r'[^a-z0-9]+'), ' ');
-  final words = s.split(' ').where((w) => w.isNotEmpty && !_tags.contains(w)).toList();
-  // A standalone trailing year duplicates the year field.
-  if (words.length > 1 && RegExp(r'^(19|20)\d{2}$').hasMatch(words.last)) words.removeLast();
-  return words.join(' ');
-}
-
-/// Year embedded in a provider title, e.g. `Kolbe (2025)`.
-int? yearFromTitle(String raw) {
-  final m = RegExp(r'\((19|20)(\d{2})\)').firstMatch(raw);
-  return m == null ? null : int.parse('${m.group(1)}${m.group(2)}');
-}
+export '../../core/text/normalize.dart' show normalizeTitle, yearFromTitle;
 
 // ---------------------------------------------------------------------------
 // Matching remote entries against the local catalogue.
@@ -56,16 +23,57 @@ int? yearFromTitle(String raw) {
 class LocalCatalog {
   LocalCatalog({required List<Movie> movies, required List<SeriesItem> series, required List<Channel> channels}) {
     for (final m in movies) {
-      (_movies[normalizeTitle(m.name)] ??= []).add(m);
+      (_movies[_key(m.nameKey, m.name)] ??= []).add(m);
     }
     for (final s in series) {
-      (_series[normalizeTitle(s.name)] ??= []).add(s);
+      (_series[_key(s.nameKey, s.name)] ??= []).add(s);
     }
     for (final c in channels) {
-      final key = normalizeTitle(c.name);
+      final key = _key(c.nameKey, c.name);
       _channels[key] ??= c;
       _channelList.add((key, c));
     }
+  }
+
+  // Rows imported before schema v3 carry an empty name_key until their playlist is refreshed.
+  static String _key(String stored, String name) => stored.isNotEmpty ? stored : normalizeTitle(name);
+
+  /// Loads only the rows that can match [entries] (exact `name_key`, plus word-contains for
+  /// channels), instead of the whole catalogue.
+  static Future<LocalCatalog> forEntries(AppDatabase db, String playlistId, List<FeaturedEntry> entries) async {
+    final movieKeys = <String>{};
+    final seriesKeys = <String>{};
+    final channelKeys = <String>{};
+    for (final e in entries) {
+      final key = normalizeTitle(e.linkQuery ?? e.title);
+      if (key.isEmpty) continue;
+      switch (e.kind) {
+        case 'movie':
+          movieKeys.add(key);
+        case 'tv':
+          seriesKeys.add(key);
+        case 'live':
+          channelKeys.add(key);
+        default:
+          switch (e.linkKind) {
+            case 'channel':
+              channelKeys.add(key);
+            case 'movie':
+              movieKeys.add(key);
+            case 'series':
+              seriesKeys.add(key);
+          }
+      }
+    }
+    final movies = movieKeys.isEmpty ? const <Movie>[] : await db.moviesByNameKeys(playlistId, movieKeys);
+    final series = seriesKeys.isEmpty ? const <SeriesItem>[] : await db.seriesByNameKeys(playlistId, seriesKeys);
+    final channels = channelKeys.isEmpty ? <Channel>[] : await db.channelsByNameKeys(playlistId, channelKeys);
+    final exact = {for (final c in channels) c.nameKey};
+    for (final key in channelKeys.where((k) => !exact.contains(k))) {
+      final c = await db.channelContainingWords(playlistId, key);
+      if (c != null) channels.add(c);
+    }
+    return LocalCatalog(movies: movies, series: series, channels: channels);
   }
 
   final _movies = <String, List<Movie>>{};
@@ -178,39 +186,72 @@ final tmdbLangProvider = Provider<String>((ref) {
   return code == 'fr' ? 'fr-FR' : 'en-US';
 });
 
-final _catalogProvider = FutureProvider.family<LocalCatalog, String>((ref, playlistId) async {
-  ref.watch(playlistImportProvider);
-  final db = ref.watch(databaseProvider);
-  return LocalCatalog(
-    movies: await db.getMovies(playlistId),
-    series: await db.getSeries(playlistId),
-    channels: await db.getChannels(playlistId),
-  );
-});
+/// Remote entries for the selected source, served stale-while-revalidate from a local cache so
+/// the hero appears at once on launch instead of waiting for the network.
+class FeaturedEntries extends AsyncNotifier<List<FeaturedEntry>> {
+  static const _refreshEvery = Duration(minutes: 15);
+  Timer? _timer;
 
-/// Remote entries for the selected source; empty when offline or unconfigured.
-final _featuredEntriesProvider = FutureProvider<List<FeaturedEntry>>((ref) async {
-  final source = ref.watch(settingsProvider.select((s) => s.featuredSource));
-  final lang = ref.watch(tmdbLangProvider);
-  final device = await ref.watch(deviceIdentityProvider.future);
-  // Refresh at most every 15 minutes while the screen stays alive.
-  final link = ref.keepAlive();
-  final timer = Timer(const Duration(minutes: 15), link.close);
-  ref.onDispose(timer.cancel);
-  try {
-    return await ref.read(portalApiProvider).featured(device, mode: source.name, lang: lang).timeout(const Duration(seconds: 10));
-  } catch (e) {
-    debugPrint('featured: $e');
-    return const [];
+  @override
+  Future<List<FeaturedEntry>> build() async {
+    final source = ref.watch(settingsProvider.select((s) => s.featuredSource));
+    final lang = ref.watch(tmdbLangProvider);
+    final prefs = ref.watch(sharedPreferencesProvider);
+    final cacheKey = 'featured:${source.name}:$lang';
+    _timer?.cancel();
+    _timer = Timer(_refreshEvery, ref.invalidateSelf);
+    ref.onDispose(() => _timer?.cancel());
+
+    final cached = _readCache(prefs, cacheKey);
+    if (cached != null) {
+      // Refresh in the background; the UI already has something to show.
+      unawaited(_refresh(cacheKey, prefs));
+      return cached;
+    }
+    return await _fetch(cacheKey, prefs) ?? const [];
   }
-});
+
+  Future<void> _refresh(String cacheKey, SharedPreferences prefs) async {
+    final fresh = await _fetch(cacheKey, prefs);
+    if (fresh != null && ref.mounted) state = AsyncData(fresh);
+  }
+
+  /// Null when the portal could not be reached (the cached value, if any, stays in place).
+  Future<List<FeaturedEntry>?> _fetch(String cacheKey, SharedPreferences prefs) async {
+    try {
+      await ref.read(deviceIdentityProvider.future);
+      final source = ref.read(settingsProvider).featuredSource;
+      final lang = ref.read(tmdbLangProvider);
+      final entries = await ref.read(portalApiProvider).featured(mode: source.name, lang: lang).timeout(const Duration(seconds: 10));
+      await prefs.setString(cacheKey, jsonEncode(entries.map((e) => e.toJson()).toList()));
+      return entries;
+    } catch (e) {
+      debugPrint('featured: $e');
+      return null;
+    }
+  }
+
+  static List<FeaturedEntry>? _readCache(SharedPreferences prefs, String key) {
+    final raw = prefs.getString(key);
+    if (raw == null) return null;
+    try {
+      return (jsonDecode(raw) as List).whereType<Map>().map((e) => FeaturedEntry.fromJson(e.cast<String, dynamic>())).toList();
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+final _featuredEntriesProvider = AsyncNotifierProvider<FeaturedEntries, List<FeaturedEntry>>(FeaturedEntries.new);
 
 /// Hero slides: matched remote entries, else the local mix (resume + newest).
 final featuredHeroProvider = FutureProvider.family<List<HeroItem>, (String, String)>((ref, key) async {
   final (playlistId, seriesBadge) = key;
   final entries = await ref.watch(_featuredEntriesProvider.future);
   if (entries.isNotEmpty) {
-    final catalog = await ref.watch(_catalogProvider(playlistId).future);
+    // Only a finished import changes the catalogue; progress ticks must not trigger rebuilds.
+    ref.watch(playlistImportProvider.select((s) => (s.playlistId, s.progress?.stage == ImportStage.done)));
+    final catalog = await LocalCatalog.forEntries(ref.watch(databaseProvider), playlistId, entries);
     final matched = matchFeatured(entries, catalog, seriesBadge: seriesBadge);
     if (matched.isNotEmpty) return matched.take(10).toList();
   }
@@ -219,20 +260,19 @@ final featuredHeroProvider = FutureProvider.family<List<HeroItem>, (String, Stri
 
 /// TMDB artwork/synopsis for a local item whose panel exposes a `tmdb_id`.
 final tmdbArtProvider = FutureProvider.family<TmdbSummary?, (String, int)>((ref, key) async {
-  final device = await ref.watch(deviceIdentityProvider.future);
+  await ref.watch(deviceIdentityProvider.future);
   final lang = ref.watch(tmdbLangProvider);
   ref.keepAlive();
-  return ref.read(portalApiProvider).tmdbDetails(device, kind: key.$1, id: key.$2, lang: lang);
+  return ref.read(portalApiProvider).tmdbDetails(kind: key.$1, id: key.$2, lang: lang);
 });
 
 /// Fire-and-forget anonymous playback statistic.
 void reportWatch(WidgetRef ref, {required String kind, required String title, int? year, int? tmdbId}) {
-  final device = ref.read(deviceIdentityProvider).value;
-  if (device == null) return;
+  if (ref.read(deviceIdentityProvider).value == null) return;
   final key = normalizeTitle(title);
   if (key.isEmpty) return;
   ref
       .read(portalApiProvider)
-      .reportWatch(device, kind: kind, titleKey: key, title: title, year: year ?? yearFromTitle(title), tmdbId: tmdbId)
+      .reportWatch(kind: kind, titleKey: key, title: title, year: year ?? yearFromTitle(title), tmdbId: tmdbId)
       .catchError((Object e) => debugPrint('reportWatch: $e'));
 }

@@ -51,6 +51,17 @@ void main() {
   });
 
   group('device identity', () {
+    test('install uuid is a v4 UUID and secrets hash deterministically', () {
+      final uuid = generateUuidV4();
+      expect(uuid, matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
+      expect(generateUuidV4(), isNot(uuid));
+      final secret = generateInstallSecret();
+      expect(secret.length, greaterThanOrEqualTo(40));
+      expect(secret, isNot(contains('=')));
+      // Only the hash travels to the server; it must match what Deno's SHA-256 hex would produce.
+      expect(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    });
+
     test('mac format is locally administered unicast', () {
       final mac = macFromSeed('android:abc');
       expect(mac, matches(RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')));

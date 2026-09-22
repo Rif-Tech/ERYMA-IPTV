@@ -29,6 +29,8 @@ class HomeScreen extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
 
     if (playlist == null) {
+      // The DB stream has not emitted yet: a blank frame beats a flash of "no playlist".
+      if (ref.watch(playlistsProvider).isLoading) return const SizedBox.shrink();
       return EmptyState(
         icon: Icons.playlist_remove,
         message: l10n.noPlaylistTitle,
@@ -261,7 +263,7 @@ class _RecentChannelsShelf extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    final channels = ref.watch(channelsProvider(ContentQuery(playlistId, ContentKind.live, SpecialCategory.recent))).value ?? const [];
+    final channels = ref.watch(channelsProvider(ContentQuery(playlistId, ContentKind.live, SpecialCategory.recent))).value?.items ?? const [];
     if (channels.isEmpty) return const SizedBox.shrink();
     final w = form.isMobile ? 150.0 : 190.0;
     return Shelf(

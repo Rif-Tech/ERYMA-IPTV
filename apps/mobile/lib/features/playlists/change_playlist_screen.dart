@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/config.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
@@ -10,7 +12,6 @@ import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
-import '../../widgets/pin_dialog.dart';
 import '../splash/splash_screen.dart';
 import 'playlists_provider.dart';
 
@@ -23,10 +24,11 @@ class ChangePlaylistScreen extends ConsumerWidget {
     final playlists = ref.watch(playlistsProvider);
     final activeId = ref.watch(settingsProvider.select((s) => s.activePlaylistId));
     final syncing = ref.watch(deviceSessionProvider).isLoading;
+    final profile = ref.watch(activeProfileProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.myPlaylists),
+        title: Text(profile == null ? l10n.myPlaylists : '${l10n.myPlaylists} · ${profile.name}'),
         leading: activeId != null
             ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.canPop() ? context.pop() : context.go(Routes.home))
             : null,
@@ -38,13 +40,10 @@ class ChangePlaylistScreen extends ConsumerWidget {
                 : const Icon(Icons.sync),
             onPressed: syncing ? null : () => ref.read(deviceSessionProvider.notifier).refresh(),
           ),
-          PopupMenuButton<String>(
-            onSelected: (v) => context.push(v == 'xtream' ? Routes.addXtream : Routes.addM3u),
-            itemBuilder: (_) => [
-              PopupMenuItem(value: 'xtream', child: ListTile(leading: const Icon(Icons.vpn_key), title: Text(l10n.addXtream))),
-              PopupMenuItem(value: 'm3u', child: ListTile(leading: const Icon(Icons.link), title: Text(l10n.addM3u))),
-            ],
+          IconButton(
+            tooltip: l10n.addPlaylistTitle,
             icon: const Icon(Icons.add),
+            onPressed: () => context.push(Routes.noPlaylist),
           ),
         ],
       ),
@@ -55,7 +54,7 @@ class ChangePlaylistScreen extends ConsumerWidget {
             return EmptyState(
               icon: Icons.playlist_remove,
               message: l10n.noPlaylistTitle,
-              action: FilledButton(onPressed: () => context.go(Routes.noPlaylist), child: Text(l10n.addPlaylist)),
+              action: FilledButton(onPressed: () => context.go(Routes.noPlaylist), child: Text(l10n.addPlaylistTitle)),
             );
           }
           return Center(
@@ -63,9 +62,12 @@ class ChangePlaylistScreen extends ConsumerWidget {
               constraints: const BoxConstraints(maxWidth: 820),
               child: ListView.separated(
                 padding: const EdgeInsets.all(20),
-                itemCount: list.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, i) {
+                // Row 0 reminds where playlists are managed; playlists follow.
+                itemCount: list.length + 1,
+                separatorBuilder: (_, i) => SizedBox(height: i == 0 ? 20 : 10),
+                itemBuilder: (context, row) {
+                  if (row == 0) return const _ManagedOnWebHint();
+                  final i = row - 1;
                   final p = list[i];
                   final account = decodeAccountInfo(p.accountInfo);
                   final exp = account['exp_date'] != null && account['exp_date'] != 'null'
@@ -130,7 +132,7 @@ class ChangePlaylistScreen extends ConsumerWidget {
     );
   }
 
-  /// Actions menu; the PIN only guards editing (credentials), never deletion or playback.
+  /// Actions menu. Portal playlists are edited on the web; only legacy local ones can be deleted here.
   Future<void> _showActions(BuildContext context, WidgetRef ref, Playlist p) async {
     final l10n = AppLocalizations.of(context);
     await showModalBottomSheet<void>(
@@ -159,15 +161,16 @@ class ChangePlaylistScreen extends ConsumerWidget {
                 if (context.mounted) context.go(Routes.import(p.id));
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: Text(l10n.editPlaylist),
-              onTap: () async {
-                Navigator.pop(sheet);
-                if (p.isProtected && !await requirePin(context, p.pinCode, title: l10n.playlistProtected)) return;
-                if (context.mounted) context.push(Routes.editPlaylist(p.id));
-              },
-            ),
+            if (p.source == PlaylistSource.portal)
+              ListTile(
+                leading: const Icon(Icons.open_in_browser_rounded),
+                title: Text(l10n.editPlaylist),
+                subtitle: Text(l10n.managePlaylistsOnline),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  launchUrl(Uri.parse('${AppConfig.accountUrl}/playlists'), mode: LaunchMode.externalApplication);
+                },
+              ),
             if (p.source == PlaylistSource.local)
               ListTile(
                 leading: const Icon(Icons.delete_outline),
@@ -202,5 +205,30 @@ class ChangePlaylistScreen extends ConsumerWidget {
     if (settings.activePlaylistId == p.id) {
       await ref.read(settingsProvider.notifier).setActivePlaylistId(null);
     }
+  }
+}
+
+/// Playlists are account-owned and edited on the portal; this row says where.
+class _ManagedOnWebHint extends StatelessWidget {
+  const _ManagedOnWebHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final host = AppConfig.portalHost;
+    return GlassPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        Icon(Icons.cloud_done_rounded, color: context.tokens.textMuted),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(l10n.managePlaylistsOnline, style: theme.textTheme.titleSmall),
+            Text(l10n.accountManageOnline(host), style: theme.textTheme.bodySmall?.copyWith(color: context.tokens.textMuted)),
+          ]),
+        ),
+      ]),
+    );
   }
 }

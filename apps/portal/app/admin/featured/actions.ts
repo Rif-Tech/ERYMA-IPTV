@@ -74,14 +74,38 @@ export async function addTmdbFeaturedAction(form: FormData): Promise<void> {
   revalidatePath("/admin/featured");
 }
 
-export async function addCustomFeaturedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
-  const supabase = await admin();
+type BannerFields = {
+  title: string;
+  subtitle: string | null;
+  overview: string | null;
+  backdrop_url: string | null;
+  poster_url: string | null;
+  link_kind: string | null;
+  link_query: string | null;
+  require_match: boolean;
+  event_at: string | null;
+  event_end_at: string | null;
+};
+
+function optionalUrl(v: FormDataEntryValue | null): string | null | { error: string } {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) return { error: "Les URL d'image doivent commencer par http(s)://." };
+  return s;
+}
+
+/** Validates the shared banner fields (custom banners and edits of any kind). */
+function parseBannerFields(form: FormData, { allowLink }: { allowLink: boolean }): BannerFields | { error: string } {
   const title = String(form.get("title") ?? "").trim();
   if (!title) return { error: "Le titre est obligatoire." };
-  const linkKind = String(form.get("link_kind") ?? "");
+  const linkKind = allowLink ? String(form.get("link_kind") ?? "") : "";
   const linkQuery = String(form.get("link_query") ?? "").trim();
   if (linkKind && !linkQuery) return { error: "Indiquez la cible du lien." };
   if (linkKind === "url" && !/^https?:\/\//i.test(linkQuery)) return { error: "L'URL doit commencer par http(s)://." };
+  const backdrop = optionalUrl(form.get("backdrop_url"));
+  if (backdrop && typeof backdrop === "object") return backdrop;
+  const poster = optionalUrl(form.get("poster_url"));
+  if (poster && typeof poster === "object") return poster;
   // datetime-local values carry no zone: the admin's browser offset is posted alongside.
   const tzOffset = Number(form.get("tz_offset") ?? 0) || 0;
   const toIso = (v: FormDataEntryValue | null): string | null => {
@@ -95,20 +119,54 @@ export async function addCustomFeaturedAction(_prev: ActionState, form: FormData
   const eventEndAt = toIso(form.get("event_end_at"));
   if (eventEndAt && !eventAt) return { error: "Indiquez l'heure de début de l'événement." };
   if (eventAt && eventEndAt && eventEndAt <= eventAt) return { error: "La fin doit être après le début." };
-  const { error } = await supabase.from("featured_items").insert({
-    kind: "custom",
+  return {
     title,
     subtitle: String(form.get("subtitle") ?? "").trim() || null,
     overview: String(form.get("overview") ?? "").trim() || null,
-    backdrop_url: String(form.get("backdrop_url") ?? "").trim() || null,
-    poster_url: String(form.get("poster_url") ?? "").trim() || null,
+    backdrop_url: backdrop,
+    poster_url: poster,
     link_kind: linkKind || null,
     link_query: linkKind ? linkQuery : null,
     require_match: form.get("require_match") === "on",
     event_at: eventAt,
     event_end_at: eventEndAt,
+  };
+}
+
+export async function addCustomFeaturedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const supabase = await admin();
+  const fields = parseBannerFields(form, { allowLink: true });
+  if ("error" in fields) return fields;
+  const { error } = await supabase.from("featured_items").insert({
+    kind: "custom",
+    ...fields,
     position: await nextPosition(supabase),
   });
+  if (error) return { error: error.message };
+  revalidatePath("/admin/featured");
+  return { ok: true };
+}
+
+/** Edits an existing item. TMDB entries keep their kind/tmdb_id; only custom banners expose a link target. */
+export async function updateFeaturedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const supabase = await admin();
+  const id = String(form.get("id") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Identifiant invalide." };
+  const { data: existing, error: readError } = await supabase.from("featured_items").select("kind").eq("id", id).maybeSingle();
+  if (readError) return { error: readError.message };
+  if (!existing) return { error: "Élément introuvable." };
+  const fields = parseBannerFields(form, { allowLink: existing.kind === "custom" });
+  if ("error" in fields) return fields;
+  const yearRaw = String(form.get("year") ?? "").trim();
+  const year = yearRaw ? Number(yearRaw) : null;
+  if (year !== null && (!Number.isInteger(year) || year < 1800 || year > 2200)) return { error: "Année invalide." };
+  const update: Record<string, unknown> = { ...fields, year, updated_at: new Date().toISOString() };
+  if (existing.kind !== "custom") {
+    // TMDB entries are always resolved against the user's playlist by title/year.
+    delete update.link_kind;
+    delete update.link_query;
+  }
+  const { error } = await supabase.from("featured_items").update(update).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/admin/featured");
   return { ok: true };

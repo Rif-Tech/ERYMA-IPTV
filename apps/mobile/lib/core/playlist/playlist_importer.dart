@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
@@ -7,9 +8,30 @@ import 'package:flutter/foundation.dart';
 import '../db/database.dart';
 import '../epg/xmltv_parser.dart';
 import '../m3u/m3u_parser.dart';
+import '../text/normalize.dart';
 import '../xtream/xtream_client.dart';
 
 enum ImportStage { connecting, live, movies, series, epg, done }
+
+/// Rows produced from one M3U file, ready for batch insertion.
+class _M3uImport {
+  const _M3uImport({
+    this.epgUrl,
+    this.categories = const [],
+    this.channels = const [],
+    this.movies = const [],
+    this.series = const [],
+    this.episodes = const [],
+  });
+  final String? epgUrl;
+  final List<CategoriesCompanion> categories;
+  final List<ChannelsCompanion> channels;
+  final List<MoviesCompanion> movies;
+  final List<SeriesItemsCompanion> series;
+  final List<EpisodesCompanion> episodes;
+
+  bool get isEmpty => channels.isEmpty && movies.isEmpty && episodes.isEmpty;
+}
 
 @immutable
 class ImportProgress {
@@ -86,81 +108,94 @@ class PlaylistImporter {
     ));
 
     try {
+      // One stage at a time: fetch → write → release, so live, VOD and series payloads are never
+      // held in memory together (a 2 GB box cannot afford three catalogues plus their companions).
       report(const ImportProgress(ImportStage.live));
-      final liveCats = await client.liveCategories();
-      final live = await client.liveStreams();
-      report(ImportProgress(ImportStage.live, total: live.length));
+      {
+        final cats = await client.liveCategories();
+        final live = await client.liveStreams();
+        report(ImportProgress(ImportStage.live, total: live.length));
+        await db.transaction(() async {
+          await db.clearPlaylistContent(p.id, kind: ContentKind.live);
+          await _insertCategories(p.id, ContentKind.live, cats);
+          await _batched(live, (chunk, offset) => db.batch((b) {
+                b.insertAll(db.channels, [
+                  for (final (i, s) in chunk.indexed)
+                    ChannelsCompanion.insert(
+                      playlistId: p.id,
+                      streamId: s.streamId,
+                      name: s.name,
+                      nameKey: Value(normalizeTitle(s.name)),
+                      logo: Value(s.icon),
+                      categoryId: Value(s.categoryId),
+                      epgChannelId: Value(s.epgChannelId),
+                      number: Value(s.number),
+                      tvArchive: Value(s.tvArchive),
+                      tvArchiveDuration: Value(s.tvArchiveDuration),
+                      position: Value(offset + i),
+                    ),
+                ]);
+              }));
+        });
+      }
 
       report(const ImportProgress(ImportStage.movies));
-      final vodCats = await client.vodCategories();
-      final vod = await client.vodStreams();
-      report(ImportProgress(ImportStage.movies, total: vod.length));
+      {
+        final cats = await client.vodCategories();
+        final vod = await client.vodStreams();
+        report(ImportProgress(ImportStage.movies, total: vod.length));
+        await db.transaction(() async {
+          await db.clearPlaylistContent(p.id, kind: ContentKind.vod);
+          await _insertCategories(p.id, ContentKind.vod, cats);
+          await _batched(vod, (chunk, offset) => db.batch((b) {
+                b.insertAll(db.movies, [
+                  for (final (i, m) in chunk.indexed)
+                    MoviesCompanion.insert(
+                      playlistId: p.id,
+                      streamId: m.streamId,
+                      name: m.name,
+                      nameKey: Value(normalizeTitle(m.name)),
+                      poster: Value(m.icon),
+                      categoryId: Value(m.categoryId),
+                      containerExtension: Value(m.containerExtension),
+                      rating: Value(m.rating),
+                      year: Value(m.year),
+                      addedAt: Value(m.addedAt),
+                      position: Value(offset + i),
+                    ),
+                ]);
+              }));
+        });
+      }
 
       report(const ImportProgress(ImportStage.series));
-      final seriesCats = await client.seriesCategories();
-      final series = await client.series();
-      report(ImportProgress(ImportStage.series, total: series.length));
-
-      await db.transaction(() async {
-        await db.clearPlaylistContent(p.id);
-        await _insertCategories(p.id, ContentKind.live, liveCats);
-        await _insertCategories(p.id, ContentKind.vod, vodCats);
-        await _insertCategories(p.id, ContentKind.series, seriesCats);
-
-        await _batched(live, (chunk, offset) => db.batch((b) {
-              b.insertAll(db.channels, [
-                for (final (i, s) in chunk.indexed)
-                  ChannelsCompanion.insert(
-                    playlistId: p.id,
-                    streamId: s.streamId,
-                    name: s.name,
-                    logo: Value(s.icon),
-                    categoryId: Value(s.categoryId),
-                    epgChannelId: Value(s.epgChannelId),
-                    number: Value(s.number),
-                    tvArchive: Value(s.tvArchive),
-                    tvArchiveDuration: Value(s.tvArchiveDuration),
-                    position: Value(offset + i),
-                  ),
-              ]);
-            }));
-
-        await _batched(vod, (chunk, offset) => db.batch((b) {
-              b.insertAll(db.movies, [
-                for (final (i, m) in chunk.indexed)
-                  MoviesCompanion.insert(
-                    playlistId: p.id,
-                    streamId: m.streamId,
-                    name: m.name,
-                    poster: Value(m.icon),
-                    categoryId: Value(m.categoryId),
-                    containerExtension: Value(m.containerExtension),
-                    rating: Value(m.rating),
-                    year: Value(m.year),
-                    addedAt: Value(m.addedAt),
-                    position: Value(offset + i),
-                  ),
-              ]);
-            }));
-
-        await _batched(series, (chunk, offset) => db.batch((b) {
-              b.insertAll(db.seriesItems, [
-                for (final (i, s) in chunk.indexed)
-                  SeriesItemsCompanion.insert(
-                    playlistId: p.id,
-                    seriesId: s.seriesId,
-                    name: s.name,
-                    cover: Value(s.cover),
-                    categoryId: Value(s.categoryId),
-                    plot: Value(s.plot),
-                    rating: Value(s.rating),
-                    year: Value(s.year),
-                    addedAt: Value(s.lastModified),
-                    position: Value(offset + i),
-                  ),
-              ]);
-            }));
-      });
+      {
+        final cats = await client.seriesCategories();
+        final series = await client.series();
+        report(ImportProgress(ImportStage.series, total: series.length));
+        await db.transaction(() async {
+          await db.clearPlaylistContent(p.id, kind: ContentKind.series);
+          await _insertCategories(p.id, ContentKind.series, cats);
+          await _batched(series, (chunk, offset) => db.batch((b) {
+                b.insertAll(db.seriesItems, [
+                  for (final (i, s) in chunk.indexed)
+                    SeriesItemsCompanion.insert(
+                      playlistId: p.id,
+                      seriesId: s.seriesId,
+                      name: s.name,
+                      nameKey: Value(normalizeTitle(s.name)),
+                      cover: Value(s.cover),
+                      categoryId: Value(s.categoryId),
+                      plot: Value(s.plot),
+                      rating: Value(s.rating),
+                      year: Value(s.year),
+                      addedAt: Value(s.lastModified),
+                      position: Value(offset + i),
+                    ),
+                ]);
+              }));
+        });
+      }
     } on XtreamException catch (e) {
       throw ImportException(e.message, isAuthError: e.isAuthError);
     }
@@ -218,13 +253,39 @@ class PlaylistImporter {
     } on FileSystemException catch (e) {
       throw ImportException(e.message);
     }
-    final M3uPlaylist parsed;
+    final _M3uImport parsed;
     try {
-      parsed = parseM3u(content);
+      // Parsing + classifying a multi-megabyte playlist is pure CPU: keep it off the UI isolate.
+      final playlistId = p.id;
+      parsed = content.length < 256 * 1024 ? _buildM3uImport(content, playlistId) : await Isolate.run(() => _buildM3uImport(content, playlistId));
     } on M3uFormatException catch (e) {
       throw ImportException(content.trim().isEmpty ? 'Server returned an empty playlist' : e.message);
     }
-    if (parsed.entries.isEmpty) throw const ImportException('Playlist is empty');
+    if (parsed.isEmpty) throw const ImportException('Playlist is empty');
+
+    report(ImportProgress(ImportStage.live, total: parsed.channels.length));
+    await db.transaction(() async {
+      await db.clearPlaylistContent(p.id);
+      await _batched(parsed.categories, (chunk, _) => db.batch((b) => b.insertAll(db.categories, chunk)));
+      await _batched(parsed.channels, (chunk, _) => db.batch((b) => b.insertAll(db.channels, chunk)));
+      await _batched(parsed.movies, (chunk, _) => db.batch((b) => b.insertAll(db.movies, chunk)));
+      await _batched(parsed.series, (chunk, _) => db.batch((b) => b.insertAll(db.seriesItems, chunk)));
+      await _batched(parsed.episodes, (chunk, _) => db.batch((b) => b.insertAll(db.episodes, chunk)));
+    });
+
+    final epgUrl = p.epgUrl ?? parsed.epgUrl;
+    if (epgUrl != null && epgUrl.isNotEmpty) {
+      if (p.epgUrl == null) {
+        await (db.update(db.playlists)..where((t) => t.id.equals(p.id))).write(PlaylistsCompanion(epgUrl: Value(epgUrl)));
+      }
+      await importEpg(p, url: epgUrl, report: report);
+    }
+  }
+
+  /// Turns raw M3U text into ready-to-insert rows. Pure function so it can run in an isolate.
+  static _M3uImport _buildM3uImport(String content, String playlistId) {
+    final parsed = parseM3u(content);
+    if (parsed.entries.isEmpty) return const _M3uImport();
 
     final liveCats = <String, int>{};
     final vodCats = <String, int>{};
@@ -255,9 +316,10 @@ class PlaylistImporter {
       switch (kind) {
         case M3uEntryKind.live:
           channels.add(ChannelsCompanion.insert(
-            playlistId: p.id,
+            playlistId: playlistId,
             streamId: id,
             name: e.title,
+            nameKey: Value(normalizeTitle(e.title)),
             logo: Value(e.tvgLogo),
             categoryId: Value(catId(liveCats, e.group)),
             epgChannelId: Value(e.tvgId ?? e.tvgName),
@@ -268,9 +330,10 @@ class PlaylistImporter {
           ));
         case M3uEntryKind.vod:
           movies.add(MoviesCompanion.insert(
-            playlistId: p.id,
+            playlistId: playlistId,
             streamId: id,
             name: e.title,
+            nameKey: Value(normalizeTitle(e.title)),
             poster: Value(e.tvgLogo),
             categoryId: Value(catId(vodCats, e.group)),
             streamUrl: Value(e.url),
@@ -283,16 +346,17 @@ class PlaylistImporter {
           seriesById.putIfAbsent(
             seriesId,
             () => SeriesItemsCompanion.insert(
-              playlistId: p.id,
+              playlistId: playlistId,
               seriesId: seriesId,
               name: seriesName,
+              nameKey: Value(normalizeTitle(seriesName)),
               cover: Value(e.tvgLogo),
               categoryId: Value(catId(seriesCats, e.group)),
               position: Value(index),
             ),
           );
           episodes.add(EpisodesCompanion.insert(
-            playlistId: p.id,
+            playlistId: playlistId,
             seriesId: seriesId,
             episodeId: id,
             season: st?.season ?? 1,
@@ -304,34 +368,24 @@ class PlaylistImporter {
       }
     }
 
-    report(ImportProgress(ImportStage.live, total: channels.length));
-    await db.transaction(() async {
-      await db.clearPlaylistContent(p.id);
-      for (final (kind, map) in [(ContentKind.live, liveCats), (ContentKind.vod, vodCats), (ContentKind.series, seriesCats)]) {
-        await db.batch((b) => b.insertAll(db.categories, [
-              for (final entry in map.entries)
-                CategoriesCompanion.insert(
-                  playlistId: p.id,
-                  externalId: entry.value.toString(),
-                  kind: kind,
-                  name: entry.key,
-                  position: Value(entry.value),
-                ),
-            ]));
-      }
-      await _batched(channels, (chunk, _) => db.batch((b) => b.insertAll(db.channels, chunk)));
-      await _batched(movies, (chunk, _) => db.batch((b) => b.insertAll(db.movies, chunk)));
-      await _batched(seriesById.values.toList(), (chunk, _) => db.batch((b) => b.insertAll(db.seriesItems, chunk)));
-      await _batched(episodes, (chunk, _) => db.batch((b) => b.insertAll(db.episodes, chunk)));
-    });
-
-    final epgUrl = p.epgUrl ?? parsed.epgUrl;
-    if (epgUrl != null && epgUrl.isNotEmpty) {
-      if (p.epgUrl == null) {
-        await (db.update(db.playlists)..where((t) => t.id.equals(p.id))).write(PlaylistsCompanion(epgUrl: Value(epgUrl)));
-      }
-      await importEpg(p, url: epgUrl, report: report);
-    }
+    return _M3uImport(
+      epgUrl: parsed.epgUrl,
+      categories: [
+        for (final (kind, map) in [(ContentKind.live, liveCats), (ContentKind.vod, vodCats), (ContentKind.series, seriesCats)])
+          for (final entry in map.entries)
+            CategoriesCompanion.insert(
+              playlistId: playlistId,
+              externalId: entry.value.toString(),
+              kind: kind,
+              name: entry.key,
+              position: Value(entry.value),
+            ),
+      ],
+      channels: channels,
+      movies: movies,
+      series: seriesById.values.toList(),
+      episodes: episodes,
+    );
   }
 
   // ---- EPG --------------------------------------------------------------
@@ -351,13 +405,17 @@ class PlaylistImporter {
       return;
     }
 
-    final horizon = DateTime.now().subtract(const Duration(days: 2));
+    // Guides often ship two weeks of data; the UI only ever shows a few days around now.
+    final now = DateTime.now();
+    final pastHorizon = now.subtract(const Duration(days: 2));
+    final futureHorizon = now.add(const Duration(days: 7));
     final buffer = <EpgProgramsCompanion>[];
     var count = 0;
+    var lastReport = DateTime.now();
     try {
       await db.clearEpg(p.id);
       await for (final prog in XmltvParser().parse(bytes)) {
-        if (prog.end.isBefore(horizon)) continue;
+        if (prog.end.isBefore(pastHorizon) || prog.start.isAfter(futureHorizon)) continue;
         buffer.add(EpgProgramsCompanion.insert(
           playlistId: p.id,
           channelId: prog.channelId,
@@ -370,7 +428,11 @@ class PlaylistImporter {
           await db.batch((b) => b.insertAll(db.epgPrograms, List.of(buffer)));
           count += buffer.length;
           buffer.clear();
-          report?.call(ImportProgress(ImportStage.epg, done: count));
+          // Progress rebuilds the import screen; a few times per second is plenty.
+          if (DateTime.now().difference(lastReport) > const Duration(milliseconds: 250)) {
+            lastReport = DateTime.now();
+            report?.call(ImportProgress(ImportStage.epg, done: count));
+          }
         }
       }
       if (buffer.isNotEmpty) {

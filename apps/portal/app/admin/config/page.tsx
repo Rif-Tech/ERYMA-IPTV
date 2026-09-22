@@ -18,6 +18,7 @@ export default async function ConfigPage() {
     min_version: str(cfg.min_version),
     latest_version: str(cfg.latest_version),
     apk_link: str(cfg.apk_link),
+    portal_url: str(cfg.portal_url),
     trial_days: Number(cfg.trial_days ?? 7),
   };
 

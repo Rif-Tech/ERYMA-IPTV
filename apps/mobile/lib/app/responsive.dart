@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/settings/settings.dart';
+
 enum FormFactor { mobile, tablet, tv }
 
 /// Set at startup from platform info (Android `uiMode` TELEVISION, no touchscreen).
@@ -8,6 +10,19 @@ final isTelevisionProvider = Provider<bool>((ref) => false);
 
 /// True on Android emulators, whose EGL stack rejects mpv's GL renderer.
 final isEmulatorProvider = Provider<bool>((ref) => false);
+
+/// Hardware class detected at startup (TV box, 32-bit or low-RAM device).
+final isLowEndDeviceProvider = Provider<bool>((ref) => false);
+
+/// Whether to trade eye-candy for frame time: forced by the user setting, else auto from hardware.
+final performanceModeProvider = Provider<bool>((ref) {
+  final mode = ref.watch(settingsProvider.select((s) => s.performanceMode));
+  return switch (mode) {
+    PerformanceMode.on => true,
+    PerformanceMode.off => false,
+    PerformanceMode.auto => ref.watch(isLowEndDeviceProvider),
+  };
+});
 
 abstract final class Breakpoints {
   static const tablet = 600.0;

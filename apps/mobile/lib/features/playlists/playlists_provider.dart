@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app/config.dart';
 import '../../core/api/portal_api.dart';
 import '../../core/db/database.dart';
 import '../../core/device/device_identity.dart';
@@ -13,7 +16,23 @@ import '../../core/xtream/xtream_client.dart';
 
 final playlistImporterProvider = Provider<PlaylistImporter>((ref) => PlaylistImporter(ref.watch(databaseProvider)));
 
-final playlistsProvider = StreamProvider<List<Playlist>>((ref) => ref.watch(databaseProvider).watchPlaylists());
+/// Every playlist stored locally (portal mirror + legacy local ones), regardless of profile access.
+final allPlaylistsProvider = StreamProvider<List<Playlist>>((ref) => ref.watch(databaseProvider).watchPlaylists());
+
+/// Playlists the active profile may open. Portal playlists are filtered by the profile's access
+/// list (`profile_playlists`); legacy local playlists stay visible to everyone on the device.
+final playlistsProvider = Provider<AsyncValue<List<Playlist>>>((ref) {
+  final all = ref.watch(allPlaylistsProvider);
+  final profile = ref.watch(activeProfileProvider);
+  return all.whenData((list) => visibleForProfile(list, profile));
+});
+
+/// Applies a profile's playlist access to the local list; no profile = everything (legacy/offline).
+List<Playlist> visibleForProfile(List<Playlist> all, ViewerProfile? profile) {
+  if (profile == null) return all;
+  final allowed = profile.playlistIds.map((id) => 'portal-$id').toSet();
+  return all.where((p) => p.source != PlaylistSource.portal || allowed.contains(p.id)).toList();
+}
 
 /// The playlist currently browsed; falls back to the first one when the saved id vanished.
 final activePlaylistProvider = Provider<Playlist?>((ref) {
@@ -32,52 +51,124 @@ String requirePlaylistId(Ref ref) {
 
 // ---------------------------------------------------------------------------
 
-@immutable
-class DeviceSession {
-  const DeviceSession({required this.status, this.online = true, this.appInfo, this.error, this.keyConflict = false});
-  final DeviceStatus status;
-  final bool online;
-  final AppInfo? appInfo;
-  final String? error;
+enum SessionPhase {
+  /// No confirmed install secret (never paired, revoked or deleted): show the pairing screen.
+  unpaired,
 
-  /// The MAC is registered on the portal with another key (reinstall / clone).
-  final bool keyConflict;
+  /// `device-session` answered: account status, profiles and playlists are fresh.
+  ready,
+
+  /// Network/portal error: local data is used, cached profiles keep the picker working.
+  offline,
 }
 
-/// Registers the device, checks app info and mirrors portal playlists into the local database.
+@immutable
+class DeviceSession {
+  const DeviceSession({required this.phase, this.status = DeviceStatus.offline, this.appInfo, this.error, this.snapshot});
+
+  const DeviceSession.unpaired({this.appInfo})
+      : phase = SessionPhase.unpaired,
+        status = DeviceStatus.offline,
+        error = null,
+        snapshot = null;
+
+  final SessionPhase phase;
+  final DeviceStatus status;
+  final AppInfo? appInfo;
+  final String? error;
+  final SessionSnapshot? snapshot;
+
+  bool get online => phase == SessionPhase.ready;
+  bool get unpaired => phase == SessionPhase.unpaired;
+
+  /// Subscription lapsed: playback is blocked until the admin renews it.
+  bool get blocked => online && status.expired;
+  String? get deviceName => snapshot?.deviceName;
+}
+
+/// Loads the account session for this install and mirrors its playlists into the local database.
 class DeviceSessionNotifier extends AsyncNotifier<DeviceSession> {
+  static const _profilesCacheKey = 'profilesCache';
+  static const portalUrlCacheKey = 'portalUrlCache';
+
   @override
   Future<DeviceSession> build() => _load();
 
   Future<DeviceSession> refresh() async {
     state = const AsyncLoading();
     final session = await _load();
-    state = AsyncData(session);
+    if (ref.mounted) state = AsyncData(session);
     return session;
   }
 
   Future<DeviceSession> _load() async {
     final api = ref.read(portalApiProvider);
     final db = ref.read(databaseProvider);
+    final prefs = ref.read(sharedPreferencesProvider);
 
+    AppInfo? appInfo;
     try {
-      final device = await ref.read(deviceIdentityProvider.future);
-      final appInfo = await api.appInfo().catchError((_) => const AppInfo());
-      await api.register(device);
-      final (status, remote) = await api.playlists(device);
-      await _mirrorPortalPlaylists(db, remote);
-      return DeviceSession(status: status, appInfo: appInfo);
+      await ref.read(deviceIdentityProvider.future);
+      final secret = await ref.read(installSecretProvider.future);
+      final infoFuture = api.appInfo().then((info) async {
+        await _applyPortalUrl(prefs, info);
+        return info;
+      }).catchError((_) => const AppInfo());
+      if (secret == null) return DeviceSession.unpaired(appInfo: await infoFuture);
+
+      // Awaited separately (not `.wait`): a ParallelWaitError would hide the 401 UNPAIRED signal.
+      final snapshot = await api.deviceSession();
+      appInfo = await infoFuture;
+      await _mirrorPortalPlaylists(db, snapshot.playlists);
+      await prefs.setString(_profilesCacheKey, jsonEncode(snapshot.profiles.map(_profileToJson).toList()));
+      return DeviceSession(phase: SessionPhase.ready, status: snapshot.status, appInfo: appInfo, snapshot: snapshot);
     } on PortalApiException catch (e) {
       debugPrint('Portal error: $e');
-      return DeviceSession(
-        status: DeviceStatus.offline,
-        online: false,
-        error: e.message,
-        keyConflict: e.statusCode == 409,
-      );
+      if (e.unpaired) {
+        // The server forgot this install (revoked/deleted): drop the secret so the pairing screen
+        // shows, and remove the account's playlists from this device (their history stays server-side).
+        await ref.read(installSecretProvider.notifier).clear();
+        await _mirrorPortalPlaylists(db, const []);
+        return DeviceSession.unpaired(appInfo: appInfo);
+      }
+      return DeviceSession(phase: SessionPhase.offline, appInfo: appInfo, error: e.message);
     } catch (e) {
       debugPrint('Portal error: $e');
-      return DeviceSession(status: DeviceStatus.offline, online: false, error: e.toString());
+      return DeviceSession(phase: SessionPhase.offline, appInfo: appInfo, error: e.toString());
+    }
+  }
+
+  /// The admin-configured portal URL replaces the build-time one and survives offline launches.
+  static Future<void> _applyPortalUrl(SharedPreferences prefs, AppInfo info) async {
+    final url = info.portalUrl;
+    if (url == null) return;
+    AppConfig.runtimePortalUrl = url;
+    await prefs.setString(portalUrlCacheKey, url);
+  }
+
+  /// Restores the last known portal URL before any screen renders a QR code.
+  static void restorePortalUrl(SharedPreferences prefs) {
+    final cached = prefs.getString(portalUrlCacheKey);
+    if (cached != null && cached.isNotEmpty) AppConfig.runtimePortalUrl = cached;
+  }
+
+  static Map<String, dynamic> _profileToJson(ViewerProfile p) => {
+        'id': p.id,
+        'name': p.name,
+        'avatar': p.avatar,
+        'is_kids': p.isKids,
+        'position': p.position,
+        'playlist_ids': p.playlistIds,
+      };
+
+  /// Profiles from the last successful session, for offline launches.
+  static List<ViewerProfile> cachedProfiles(SharedPreferences prefs) {
+    final raw = prefs.getString(_profilesCacheKey);
+    if (raw == null) return const [];
+    try {
+      return (jsonDecode(raw) as List).whereType<Map>().map((e) => ViewerProfile.fromJson(e.cast<String, dynamic>())).toList();
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -137,6 +228,65 @@ final deviceSessionProvider = AsyncNotifierProvider<DeviceSessionNotifier, Devic
 
 // ---------------------------------------------------------------------------
 
+/// Viewer profiles of the account: fresh from the session when online, cached otherwise.
+final profilesProvider = Provider<List<ViewerProfile>>((ref) {
+  final session = ref.watch(deviceSessionProvider).value;
+  final live = session?.snapshot?.profiles;
+  if (live != null) return live;
+  if (session != null && session.unpaired) return const [];
+  return DeviceSessionNotifier.cachedProfiles(ref.watch(sharedPreferencesProvider));
+});
+
+/// The profile picked on this device, or null when none is selected / it was deleted.
+final activeProfileProvider = Provider<ViewerProfile?>((ref) {
+  final id = ref.watch(settingsProvider.select((s) => s.activeProfileId));
+  if (id == null) return null;
+  for (final p in ref.watch(profilesProvider)) {
+    if (p.id == id) return p;
+  }
+  return null;
+});
+
+/// Profile selection side effects, callable from widgets and providers alike.
+class ProfileController extends Notifier<void> {
+  @override
+  void build() {}
+
+  /// Makes [profile] the active viewer: scopes the local database, claims pre-profile data once,
+  /// persists the choice and tells the server (best effort) so the portal can show it.
+  Future<void> select(ViewerProfile profile) async {
+    final db = ref.read(databaseProvider);
+    db.profileId = profile.id;
+    if (await db.hasLegacyProfileData()) await db.claimLegacyProfileData(profile.id);
+    await ref.read(settingsProvider.notifier).setActiveProfileId(profile.id);
+    _pushContext(profile.id);
+  }
+
+  /// Re-applies the persisted profile to the database scope at boot (no network).
+  void restore() {
+    ref.read(databaseProvider).profileId = ref.read(settingsProvider).activeProfileId ?? '';
+  }
+
+  /// Remembers the playlist in use server-side (best effort).
+  void rememberPlaylist() {
+    final profileId = ref.read(settingsProvider).activeProfileId;
+    if (profileId != null) _pushContext(profileId);
+  }
+
+  void _pushContext(String profileId) {
+    final id = ref.read(settingsProvider).activePlaylistId;
+    final playlistId = id != null && id.startsWith('portal-') ? id.substring('portal-'.length) : null;
+    unawaited(ref.read(portalApiProvider).setContext(profileId: profileId, playlistId: playlistId).catchError((Object e) => debugPrint('setContext: $e')));
+  }
+}
+
+final profileControllerProvider = NotifierProvider<ProfileController, void>(ProfileController.new);
+
+/// Server uuid of a mirrored playlist (`portal-<uuid>`), null for legacy local playlists.
+String? serverPlaylistId(Playlist p) => p.source == PlaylistSource.portal ? p.id.replaceFirst('portal-', '') : null;
+
+// ---------------------------------------------------------------------------
+
 @immutable
 class ImportState {
   const ImportState({this.playlistId, this.progress, this.error, this.isAuthError = false});
@@ -186,76 +336,3 @@ bool needsImport(Playlist p, AutoUpdate policy) {
     AutoUpdate.daily => DateTime.now().difference(last) > const Duration(hours: 24),
   };
 }
-
-// ---------------------------------------------------------------------------
-
-/// Local (on-device) playlist creation helpers.
-class LocalPlaylists {
-  LocalPlaylists(this.db);
-  final AppDatabase db;
-
-  Future<Playlist> addM3u({required String name, required String url, String? epgUrl, String? pin}) async {
-    final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
-    await db.upsertPlaylist(PlaylistsCompanion.insert(
-      id: id,
-      name: name,
-      type: PlaylistType.m3u,
-      source: PlaylistSource.local,
-      url: url,
-      epgUrl: Value(epgUrl?.isEmpty == true ? null : epgUrl),
-      isProtected: Value(pin != null && pin.isNotEmpty),
-      pinCode: Value(pin),
-      position: const Value(1000),
-    ));
-    return (await db.getPlaylist(id))!;
-  }
-
-  Future<Playlist> addXtream({
-    required String name,
-    required String serverUrl,
-    required String username,
-    required String password,
-    String? pin,
-  }) async {
-    final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
-    await db.upsertPlaylist(PlaylistsCompanion.insert(
-      id: id,
-      name: name,
-      type: PlaylistType.xtream,
-      source: PlaylistSource.local,
-      url: serverUrl,
-      username: Value(username),
-      password: Value(password),
-      isProtected: Value(pin != null && pin.isNotEmpty),
-      pinCode: Value(pin),
-      position: const Value(1000),
-    ));
-    return (await db.getPlaylist(id))!;
-  }
-
-  /// Rewrites a local playlist; a changed source forces a re-import.
-  Future<Playlist> update(
-    Playlist p, {
-    required String name,
-    required String url,
-    String? username,
-    String? password,
-    String? epgUrl,
-    String? pin,
-  }) async {
-    final sourceChanged = p.url != url || p.username != username || p.password != password || p.epgUrl != epgUrl;
-    await (db.update(db.playlists)..where((t) => t.id.equals(p.id))).write(PlaylistsCompanion(
-      name: Value(name),
-      url: Value(url),
-      username: Value(username?.isEmpty == true ? null : username),
-      password: Value(password?.isEmpty == true ? null : password),
-      epgUrl: Value(epgUrl?.isEmpty == true ? null : epgUrl),
-      isProtected: Value(pin != null && pin.isNotEmpty),
-      pinCode: Value(pin?.isEmpty == true ? null : pin),
-      lastSyncedAt: sourceChanged ? const Value(null) : Value(p.lastSyncedAt),
-    ));
-    return (await db.getPlaylist(p.id))!;
-  }
-}
-
-final localPlaylistsProvider = Provider<LocalPlaylists>((ref) => LocalPlaylists(ref.watch(databaseProvider)));

@@ -24,20 +24,23 @@ port = 54324
 [auth]
 enabled = true
 site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000"]
+additional_redirect_urls = ["http://localhost:3000", "http://localhost:3000/auth/callback", "http://100.88.208.52:3000", "http://100.88.208.52:3000/auth/callback"]
 jwt_expiry = 3600
-enable_signup = false
+# End users create their own account (e-mail + password) from the portal.
+enable_signup = true
 enable_anonymous_sign_ins = false
 
 [auth.email]
-enable_signup = false
-enable_confirmations = false
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
 
 [edge_runtime]
 enabled = true
 policy = "per_worker"
 
-# Device-facing functions authenticate with MAC + device key, not a Supabase JWT.
+# Device-facing functions authenticate with the install secret (or legacy MAC + device key),
+# not a Supabase JWT; pairing-confirm verifies the user's JWT itself.
 [functions.device-register]
 verify_jwt = false
 
@@ -51,4 +54,31 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.portal-playlists]
+verify_jwt = false
+
+[functions.featured]
+verify_jwt = false
+
+[functions.tmdb]
+verify_jwt = false
+
+[functions.watch-events]
+verify_jwt = false
+
+[functions.pairing-create]
+verify_jwt = false
+
+[functions.pairing-status]
+verify_jwt = false
+
+[functions.pairing-confirm]
+verify_jwt = false
+
+[functions.device-session]
+verify_jwt = false
+
+[functions.device-context]
+verify_jwt = false
+
+[functions.device-progress]
 verify_jwt = false

@@ -2,25 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/supabase";
 import { deleteFeaturedAction, moveFeaturedAction, toggleFeaturedAction } from "./actions";
-import { CustomBannerForm, TmdbSearchForm } from "./featured-forms";
-
-type FeaturedRow = {
-  id: string;
-  kind: "movie" | "tv" | "custom";
-  tmdb_id: number | null;
-  title: string;
-  subtitle: string | null;
-  year: number | null;
-  poster_url: string | null;
-  backdrop_url: string | null;
-  link_kind: string | null;
-  link_query: string | null;
-  require_match: boolean;
-  enabled: boolean;
-  position: number;
-  event_at: string | null;
-  event_end_at: string | null;
-};
+import { CustomBannerForm, EditFeaturedButton, TmdbSearchForm } from "./featured-forms";
+import type { FeaturedRow } from "./types";
 
 const kindLabel: Record<FeaturedRow["kind"], string> = { movie: "Film", tv: "Série", custom: "Bannière" };
 const linkLabel: Record<string, string> = { channel: "Chaîne", movie: "Film", series: "Série", url: "URL" };
@@ -119,6 +102,7 @@ export default async function FeaturedPage() {
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex justify-end gap-1">
+                    <EditFeaturedButton item={it} />
                     <form action={moveFeaturedAction}>
                       <input type="hidden" name="id" value={it.id} />
                       <input type="hidden" name="dir" value="up" />

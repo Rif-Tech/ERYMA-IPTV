@@ -4,7 +4,8 @@ import { HttpError, optionalString, requireString } from "./http.ts";
 
 export interface PlaylistRow {
   id: string;
-  device_id: string;
+  device_id: string | null;
+  account_id: string | null;
   name: string;
   type: "m3u" | "xtream";
   url: string;
@@ -84,6 +85,17 @@ export async function listPlaylists(db: SupabaseClient, deviceId: string): Promi
     .from("playlists")
     .select("*")
     .eq("device_id", deviceId)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) throw new HttpError(500, error.message);
+  return (data ?? []) as PlaylistRow[];
+}
+
+export async function listAccountPlaylists(db: SupabaseClient, accountId: string): Promise<PlaylistRow[]> {
+  const { data, error } = await db
+    .from("playlists")
+    .select("*")
+    .eq("account_id", accountId)
     .order("position", { ascending: true })
     .order("created_at", { ascending: true });
   if (error) throw new HttpError(500, error.message);

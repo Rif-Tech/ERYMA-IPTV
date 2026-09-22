@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import type { Playlist } from "@/lib/api";
 import type { ActionState } from "./actions";
@@ -11,14 +12,20 @@ type Props = {
   unlockPin?: string;
   submitLabel: string;
   onDone?: () => void;
+  /** Navigate here after a successful submit. */
+  redirectTo?: string;
 };
 
 /** Shared create/edit form for M3U and Xtream playlists. */
-export function PlaylistForm({ action, playlist, unlockPin, submitLabel, onDone }: Props) {
+export function PlaylistForm({ action, playlist, unlockPin, submitLabel, onDone, redirectTo }: Props) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState<ActionState, FormData>(
     async (prev, form) => {
       const result = await action(prev, form);
-      if (result.ok) onDone?.();
+      if (result.ok) {
+        onDone?.();
+        if (redirectTo) router.push(redirectTo);
+      }
       return result;
     },
     {},

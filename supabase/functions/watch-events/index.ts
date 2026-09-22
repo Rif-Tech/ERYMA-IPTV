@@ -1,14 +1,15 @@
-// POST /watch-events {mac, key, kind: movie|tv|live, title_key, title, year?, tmdb_id?}
+// POST /watch-events {kind: movie|tv|live, title_key, title, year?, tmdb_id?}
+// Auth: install headers (x-device-id/x-device-secret) or legacy {mac, key}.
 // Anonymous playback statistics used for the "most watched right now" hero source.
 
 import { adminClient, HttpError, json, readJson, requireString, serve } from "../_shared/http.ts";
-import { authenticateDevice } from "../_shared/device.ts";
+import { authenticateAny } from "../_shared/device.ts";
 
 serve(async (req) => {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
   const db = adminClient();
   const body = await readJson(req);
-  const device = await authenticateDevice(db, body.mac, body.key);
+  const { device } = await authenticateAny(db, req, body);
 
   const kind = String(body.kind ?? "");
   if (!["movie", "tv", "live"].includes(kind)) throw new HttpError(400, "kind must be movie, tv or live");
@@ -32,6 +33,7 @@ serve(async (req) => {
 
   const { error } = await db.from("watch_events").insert({
     device_id: device.id,
+    account_id: device.account_id,
     kind,
     title_key: titleKey,
     title,

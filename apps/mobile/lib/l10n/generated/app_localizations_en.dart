@@ -185,6 +185,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Scan the QR code to add a playlist from the web portal.';
 
   @override
+  String get scanQrManage =>
+      'Scan this QR code to add, edit or remove your playlists from the web portal.';
+
+  @override
+  String get managePlaylistsOnline => 'Manage my playlists on the web';
+
+  @override
   String get openPortal => 'Open the portal';
 
   @override
@@ -227,11 +234,120 @@ class AppLocalizationsEn extends AppLocalizations {
       'This MAC address is already registered with another device key. Ask the administrator to delete the device on the portal, then restart the app.';
 
   @override
-  String get noPlaylistTitle => 'No playlist for this device';
+  String get pairTitle => 'Link this device to your account';
+
+  @override
+  String pairStep1(String url) {
+    return 'On your phone or computer, open $url';
+  }
+
+  @override
+  String get pairStep2 => 'Sign in (or create a free account).';
+
+  @override
+  String get pairStep3 => 'Enter the code below, or scan the QR code.';
+
+  @override
+  String get pairCode => 'Code';
+
+  @override
+  String pairExpiresIn(String time) {
+    return 'Code expires in $time';
+  }
+
+  @override
+  String get pairExpired => 'This code has expired.';
+
+  @override
+  String get pairNewCode => 'New code';
+
+  @override
+  String get pairWaiting => 'Waiting for confirmation…';
+
+  @override
+  String get pairConfirmed => 'Device linked! Loading your account…';
+
+  @override
+  String pairFailed(String error) {
+    return 'Could not start pairing: $error';
+  }
+
+  @override
+  String get pairLater => 'Continue without an account';
+
+  @override
+  String get addPlaylistTitle => 'Add a playlist';
+
+  @override
+  String addPlaylistPairIntro(String url) {
+    return 'Playlists are managed on the web. Scan the QR code or enter this code on $url to add an M3U or Xtream Codes source to your account.';
+  }
+
+  @override
+  String get addPlaylistConfirmed => 'Playlist added! Syncing…';
+
+  @override
+  String get whoIsWatching => 'Who\'s watching?';
+
+  @override
+  String get switchProfile => 'Switch profile';
+
+  @override
+  String get kidsProfile => 'Kids';
+
+  @override
+  String get manageProfilesHint =>
+      'Profiles are created and edited on the web portal.';
+
+  @override
+  String get noProfileAccess =>
+      'This profile has no access to any playlist. Edit its access on the web portal.';
+
+  @override
+  String get account => 'Account';
+
+  @override
+  String get accountPlan => 'Plan';
+
+  @override
+  String accountDevices(int count) {
+    return 'Up to $count device(s)';
+  }
+
+  @override
+  String get accountExpired => 'Account expired';
+
+  @override
+  String accountManageOnline(String url) {
+    return 'Manage your devices, profiles and playlists at $url';
+  }
+
+  @override
+  String get deviceName => 'Device name';
+
+  @override
+  String get unpairDevice => 'Unlink this device';
+
+  @override
+  String get unpairDeviceConfirm =>
+      'The device will be detached from your account and must be linked again with a new code. Your playlists and history stay on your account.';
+
+  @override
+  String get unpaired => 'Device not linked';
+
+  @override
+  String get unpairedDescription =>
+      'This device is no longer linked to an account. Link it again to get your playlists back.';
+
+  @override
+  String get pairDevice => 'Link device';
+
+  @override
+  String get noPlaylistTitle => 'No playlist';
 
   @override
   String get noPlaylistDescription =>
-      'Playlists can be added here or on the web portal using your MAC address and device key.';
+      'Your account has no playlist this profile can access yet.';
 
   @override
   String get addPlaylist => 'Add playlist';
@@ -353,9 +469,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get loginFailed => 'Login failed. Check the username and password.';
-
-  @override
-  String get accountExpired => 'Account expired';
 
   @override
   String accountExpires(String date) {
@@ -509,6 +622,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fitStretch => 'Stretch';
 
   @override
+  String get videoDecoder => 'Video decoding';
+
+  @override
+  String get decoderAuto => 'Automatic (direct on TV)';
+
+  @override
+  String get decoderDirect => 'Direct hardware — smoothest';
+
+  @override
+  String get decoderCompat => 'Compatibility — slower';
+
+  @override
+  String get performanceMode => 'Performance mode';
+
+  @override
+  String get performanceAuto => 'Automatic (on for TV boxes)';
+
+  @override
+  String get performanceOn => 'On — lighter visuals, smoother';
+
+  @override
+  String get performanceOff => 'Off — full visuals';
+
+  @override
   String get clearCache => 'Clear cache';
 
   @override
@@ -642,9 +779,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get playback => 'Playback';
-
-  @override
-  String get account => 'Account';
 
   @override
   String get episodesTitle => 'Episodes';

@@ -22,19 +22,34 @@ class ContentBrowser extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final playlist = ref.watch(activePlaylistProvider);
-    if (playlist == null) return EmptyState(icon: Icons.movie, message: kind == ContentKind.vod ? l10n.noMovies : l10n.noSeries);
+    if (playlist == null) {
+      if (ref.watch(playlistsProvider).isLoading) return const SizedBox.shrink();
+      return EmptyState(icon: Icons.movie, message: kind == ContentKind.vod ? l10n.noMovies : l10n.noSeries);
+    }
     final selected = ref.watch(selectedCategoryProvider(kind));
     final query = ContentQuery(playlist.id, kind, selected);
 
     return Responsive(
       builder: (context, form) {
         final grid = kind == ContentKind.vod
-            ? AsyncView(value: ref.watch(moviesProvider(query)), builder: (items) => _MovieGrid(items: items, form: form))
-            : AsyncView(value: ref.watch(seriesProvider(query)), builder: (items) => _SeriesGrid(items: items, form: form));
+            ? AsyncView(
+                value: ref.watch(moviesProvider(query)),
+                builder: (page) => _MovieGrid(items: page.items, form: form, onNearEnd: () => ref.read(moviesProvider(query).notifier).loadMore()),
+              )
+            : AsyncView(
+                value: ref.watch(seriesProvider(query)),
+                builder: (page) => _SeriesGrid(items: page.items, form: form, onNearEnd: () => ref.read(seriesProvider(query).notifier).loadMore()),
+              );
         return BrowserScaffold(kind: kind, form: form, child: grid);
       },
     );
   }
+}
+
+/// Fires `onNearEnd` while the builder lays out one of the last rows, so the next page is
+/// requested before the user reaches the bottom.
+void requestMoreIfNearEnd(int index, int count, VoidCallback onNearEnd, {int threshold = 40}) {
+  if (index >= count - threshold) onNearEnd();
 }
 
 EdgeInsets _gridPadding(BuildContext context, FormFactor form) =>
@@ -55,9 +70,10 @@ class MoviesScreen extends StatelessWidget {
 }
 
 class _MovieGrid extends ConsumerWidget {
-  const _MovieGrid({required this.items, required this.form});
+  const _MovieGrid({required this.items, required this.form, required this.onNearEnd});
   final List<Movie> items;
   final FormFactor form;
+  final VoidCallback onNearEnd;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -70,7 +86,9 @@ class _MovieGrid extends ConsumerWidget {
         itemCount: items.length,
         itemExtent: 72,
         addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
         itemBuilder: (context, i) {
+          requestMoreIfNearEnd(i, items.length, onNearEnd);
           final m = items[i];
           return Padding(
             padding: const EdgeInsets.only(bottom: 6),
@@ -104,7 +122,9 @@ class _MovieGrid extends ConsumerWidget {
         gridDelegate: _posterDelegate(form, constraints.maxWidth),
         itemCount: items.length,
         addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
         itemBuilder: (context, i) {
+          requestMoreIfNearEnd(i, items.length, onNearEnd);
           final m = items[i];
           return PosterCard(
             autofocus: i == 0,
@@ -122,9 +142,10 @@ class _MovieGrid extends ConsumerWidget {
 }
 
 class _SeriesGrid extends ConsumerWidget {
-  const _SeriesGrid({required this.items, required this.form});
+  const _SeriesGrid({required this.items, required this.form, required this.onNearEnd});
   final List<SeriesItem> items;
   final FormFactor form;
+  final VoidCallback onNearEnd;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -136,7 +157,9 @@ class _SeriesGrid extends ConsumerWidget {
         gridDelegate: _posterDelegate(form, constraints.maxWidth),
         itemCount: items.length,
         addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
         itemBuilder: (context, i) {
+          requestMoreIfNearEnd(i, items.length, onNearEnd);
           final s = items[i];
           return PosterCard(
             autofocus: i == 0,

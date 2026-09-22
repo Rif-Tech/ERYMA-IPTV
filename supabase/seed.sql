@@ -26,3 +26,33 @@ insert into public.playlists (device_id, name, type, url)
 select id, 'Demo M3U', 'm3u', 'https://iptv-org.github.io/iptv/index.m3u'
 from public.devices where mac = '02:00:00:AA:BB:CC'
 on conflict do nothing;
+
+-- Demo end user (password "multiptv-user") with an account-owned playlist and two profiles.
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '22222222-2222-2222-2222-222222222222',
+  'authenticated', 'authenticated',
+  'user@multiptv.local',
+  crypt('multiptv-user', gen_salt('bf')),
+  now(),
+  '{"provider":"email","providers":["email"]}',
+  '{}',
+  now(), now()
+) on conflict (id) do nothing;
+
+insert into public.viewer_profiles (account_id, name, avatar, is_kids, position)
+values ('22222222-2222-2222-2222-222222222222', 'Kids', 'green', true, 1)
+on conflict do nothing;
+
+insert into public.playlists (account_id, name, type, url)
+values ('22222222-2222-2222-2222-222222222222', 'Famille', 'm3u', 'https://iptv-org.github.io/iptv/index.m3u')
+on conflict do nothing;
+
+insert into public.profile_playlists (profile_id, playlist_id)
+select vp.id, pl.id from public.viewer_profiles vp
+cross join public.playlists pl
+where vp.account_id = '22222222-2222-2222-2222-222222222222' and pl.account_id = vp.account_id
+on conflict do nothing;

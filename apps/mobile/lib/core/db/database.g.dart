@@ -1291,6 +1291,18 @@ class $ChannelsTable extends Channels with TableInfo<$ChannelsTable, Channel> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _nameKeyMeta = const VerificationMeta(
+    'nameKey',
+  );
+  @override
+  late final GeneratedColumn<String> nameKey = GeneratedColumn<String>(
+    'name_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _logoMeta = const VerificationMeta('logo');
   @override
   late final GeneratedColumn<String> logo = GeneratedColumn<String>(
@@ -1388,6 +1400,7 @@ class $ChannelsTable extends Channels with TableInfo<$ChannelsTable, Channel> {
     playlistId,
     streamId,
     name,
+    nameKey,
     logo,
     categoryId,
     epgChannelId,
@@ -1435,6 +1448,12 @@ class $ChannelsTable extends Channels with TableInfo<$ChannelsTable, Channel> {
       );
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('name_key')) {
+      context.handle(
+        _nameKeyMeta,
+        nameKey.isAcceptableOrUnknown(data['name_key']!, _nameKeyMeta),
+      );
     }
     if (data.containsKey('logo')) {
       context.handle(
@@ -1519,6 +1538,10 @@ class $ChannelsTable extends Channels with TableInfo<$ChannelsTable, Channel> {
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      nameKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name_key'],
+      )!,
       logo: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}logo'],
@@ -1565,6 +1588,9 @@ class Channel extends DataClass implements Insertable<Channel> {
   final String playlistId;
   final String streamId;
   final String name;
+
+  /// [normalizeTitle] of [name]; lets matching and search stay in SQL.
+  final String nameKey;
   final String? logo;
   final String? categoryId;
   final String? epgChannelId;
@@ -1580,6 +1606,7 @@ class Channel extends DataClass implements Insertable<Channel> {
     required this.playlistId,
     required this.streamId,
     required this.name,
+    required this.nameKey,
     this.logo,
     this.categoryId,
     this.epgChannelId,
@@ -1596,6 +1623,7 @@ class Channel extends DataClass implements Insertable<Channel> {
     map['playlist_id'] = Variable<String>(playlistId);
     map['stream_id'] = Variable<String>(streamId);
     map['name'] = Variable<String>(name);
+    map['name_key'] = Variable<String>(nameKey);
     if (!nullToAbsent || logo != null) {
       map['logo'] = Variable<String>(logo);
     }
@@ -1621,6 +1649,7 @@ class Channel extends DataClass implements Insertable<Channel> {
       playlistId: Value(playlistId),
       streamId: Value(streamId),
       name: Value(name),
+      nameKey: Value(nameKey),
       logo: logo == null && nullToAbsent ? const Value.absent() : Value(logo),
       categoryId: categoryId == null && nullToAbsent
           ? const Value.absent()
@@ -1648,6 +1677,7 @@ class Channel extends DataClass implements Insertable<Channel> {
       playlistId: serializer.fromJson<String>(json['playlistId']),
       streamId: serializer.fromJson<String>(json['streamId']),
       name: serializer.fromJson<String>(json['name']),
+      nameKey: serializer.fromJson<String>(json['nameKey']),
       logo: serializer.fromJson<String?>(json['logo']),
       categoryId: serializer.fromJson<String?>(json['categoryId']),
       epgChannelId: serializer.fromJson<String?>(json['epgChannelId']),
@@ -1666,6 +1696,7 @@ class Channel extends DataClass implements Insertable<Channel> {
       'playlistId': serializer.toJson<String>(playlistId),
       'streamId': serializer.toJson<String>(streamId),
       'name': serializer.toJson<String>(name),
+      'nameKey': serializer.toJson<String>(nameKey),
       'logo': serializer.toJson<String?>(logo),
       'categoryId': serializer.toJson<String?>(categoryId),
       'epgChannelId': serializer.toJson<String?>(epgChannelId),
@@ -1682,6 +1713,7 @@ class Channel extends DataClass implements Insertable<Channel> {
     String? playlistId,
     String? streamId,
     String? name,
+    String? nameKey,
     Value<String?> logo = const Value.absent(),
     Value<String?> categoryId = const Value.absent(),
     Value<String?> epgChannelId = const Value.absent(),
@@ -1695,6 +1727,7 @@ class Channel extends DataClass implements Insertable<Channel> {
     playlistId: playlistId ?? this.playlistId,
     streamId: streamId ?? this.streamId,
     name: name ?? this.name,
+    nameKey: nameKey ?? this.nameKey,
     logo: logo.present ? logo.value : this.logo,
     categoryId: categoryId.present ? categoryId.value : this.categoryId,
     epgChannelId: epgChannelId.present ? epgChannelId.value : this.epgChannelId,
@@ -1712,6 +1745,7 @@ class Channel extends DataClass implements Insertable<Channel> {
           : this.playlistId,
       streamId: data.streamId.present ? data.streamId.value : this.streamId,
       name: data.name.present ? data.name.value : this.name,
+      nameKey: data.nameKey.present ? data.nameKey.value : this.nameKey,
       logo: data.logo.present ? data.logo.value : this.logo,
       categoryId: data.categoryId.present
           ? data.categoryId.value
@@ -1736,6 +1770,7 @@ class Channel extends DataClass implements Insertable<Channel> {
           ..write('playlistId: $playlistId, ')
           ..write('streamId: $streamId, ')
           ..write('name: $name, ')
+          ..write('nameKey: $nameKey, ')
           ..write('logo: $logo, ')
           ..write('categoryId: $categoryId, ')
           ..write('epgChannelId: $epgChannelId, ')
@@ -1754,6 +1789,7 @@ class Channel extends DataClass implements Insertable<Channel> {
     playlistId,
     streamId,
     name,
+    nameKey,
     logo,
     categoryId,
     epgChannelId,
@@ -1771,6 +1807,7 @@ class Channel extends DataClass implements Insertable<Channel> {
           other.playlistId == this.playlistId &&
           other.streamId == this.streamId &&
           other.name == this.name &&
+          other.nameKey == this.nameKey &&
           other.logo == this.logo &&
           other.categoryId == this.categoryId &&
           other.epgChannelId == this.epgChannelId &&
@@ -1786,6 +1823,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
   final Value<String> playlistId;
   final Value<String> streamId;
   final Value<String> name;
+  final Value<String> nameKey;
   final Value<String?> logo;
   final Value<String?> categoryId;
   final Value<String?> epgChannelId;
@@ -1799,6 +1837,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
     this.playlistId = const Value.absent(),
     this.streamId = const Value.absent(),
     this.name = const Value.absent(),
+    this.nameKey = const Value.absent(),
     this.logo = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.epgChannelId = const Value.absent(),
@@ -1813,6 +1852,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
     required String playlistId,
     required String streamId,
     required String name,
+    this.nameKey = const Value.absent(),
     this.logo = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.epgChannelId = const Value.absent(),
@@ -1829,6 +1869,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
     Expression<String>? playlistId,
     Expression<String>? streamId,
     Expression<String>? name,
+    Expression<String>? nameKey,
     Expression<String>? logo,
     Expression<String>? categoryId,
     Expression<String>? epgChannelId,
@@ -1843,6 +1884,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
       if (playlistId != null) 'playlist_id': playlistId,
       if (streamId != null) 'stream_id': streamId,
       if (name != null) 'name': name,
+      if (nameKey != null) 'name_key': nameKey,
       if (logo != null) 'logo': logo,
       if (categoryId != null) 'category_id': categoryId,
       if (epgChannelId != null) 'epg_channel_id': epgChannelId,
@@ -1859,6 +1901,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
     Value<String>? playlistId,
     Value<String>? streamId,
     Value<String>? name,
+    Value<String>? nameKey,
     Value<String?>? logo,
     Value<String?>? categoryId,
     Value<String?>? epgChannelId,
@@ -1873,6 +1916,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
       playlistId: playlistId ?? this.playlistId,
       streamId: streamId ?? this.streamId,
       name: name ?? this.name,
+      nameKey: nameKey ?? this.nameKey,
       logo: logo ?? this.logo,
       categoryId: categoryId ?? this.categoryId,
       epgChannelId: epgChannelId ?? this.epgChannelId,
@@ -1898,6 +1942,9 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (nameKey.present) {
+      map['name_key'] = Variable<String>(nameKey.value);
     }
     if (logo.present) {
       map['logo'] = Variable<String>(logo.value);
@@ -1933,6 +1980,7 @@ class ChannelsCompanion extends UpdateCompanion<Channel> {
           ..write('playlistId: $playlistId, ')
           ..write('streamId: $streamId, ')
           ..write('name: $name, ')
+          ..write('nameKey: $nameKey, ')
           ..write('logo: $logo, ')
           ..write('categoryId: $categoryId, ')
           ..write('epgChannelId: $epgChannelId, ')
@@ -1995,6 +2043,18 @@ class $MoviesTable extends Movies with TableInfo<$MoviesTable, Movie> {
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameKeyMeta = const VerificationMeta(
+    'nameKey',
+  );
+  @override
+  late final GeneratedColumn<String> nameKey = GeneratedColumn<String>(
+    'name_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
   );
   static const VerificationMeta _posterMeta = const VerificationMeta('poster');
   @override
@@ -2086,6 +2146,7 @@ class $MoviesTable extends Movies with TableInfo<$MoviesTable, Movie> {
     playlistId,
     streamId,
     name,
+    nameKey,
     poster,
     categoryId,
     streamUrl,
@@ -2133,6 +2194,12 @@ class $MoviesTable extends Movies with TableInfo<$MoviesTable, Movie> {
       );
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('name_key')) {
+      context.handle(
+        _nameKeyMeta,
+        nameKey.isAcceptableOrUnknown(data['name_key']!, _nameKeyMeta),
+      );
     }
     if (data.containsKey('poster')) {
       context.handle(
@@ -2214,6 +2281,10 @@ class $MoviesTable extends Movies with TableInfo<$MoviesTable, Movie> {
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      nameKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name_key'],
+      )!,
       poster: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}poster'],
@@ -2260,6 +2331,7 @@ class Movie extends DataClass implements Insertable<Movie> {
   final String playlistId;
   final String streamId;
   final String name;
+  final String nameKey;
   final String? poster;
   final String? categoryId;
   final String streamUrl;
@@ -2273,6 +2345,7 @@ class Movie extends DataClass implements Insertable<Movie> {
     required this.playlistId,
     required this.streamId,
     required this.name,
+    required this.nameKey,
     this.poster,
     this.categoryId,
     required this.streamUrl,
@@ -2289,6 +2362,7 @@ class Movie extends DataClass implements Insertable<Movie> {
     map['playlist_id'] = Variable<String>(playlistId);
     map['stream_id'] = Variable<String>(streamId);
     map['name'] = Variable<String>(name);
+    map['name_key'] = Variable<String>(nameKey);
     if (!nullToAbsent || poster != null) {
       map['poster'] = Variable<String>(poster);
     }
@@ -2318,6 +2392,7 @@ class Movie extends DataClass implements Insertable<Movie> {
       playlistId: Value(playlistId),
       streamId: Value(streamId),
       name: Value(name),
+      nameKey: Value(nameKey),
       poster: poster == null && nullToAbsent
           ? const Value.absent()
           : Value(poster),
@@ -2349,6 +2424,7 @@ class Movie extends DataClass implements Insertable<Movie> {
       playlistId: serializer.fromJson<String>(json['playlistId']),
       streamId: serializer.fromJson<String>(json['streamId']),
       name: serializer.fromJson<String>(json['name']),
+      nameKey: serializer.fromJson<String>(json['nameKey']),
       poster: serializer.fromJson<String?>(json['poster']),
       categoryId: serializer.fromJson<String?>(json['categoryId']),
       streamUrl: serializer.fromJson<String>(json['streamUrl']),
@@ -2369,6 +2445,7 @@ class Movie extends DataClass implements Insertable<Movie> {
       'playlistId': serializer.toJson<String>(playlistId),
       'streamId': serializer.toJson<String>(streamId),
       'name': serializer.toJson<String>(name),
+      'nameKey': serializer.toJson<String>(nameKey),
       'poster': serializer.toJson<String?>(poster),
       'categoryId': serializer.toJson<String?>(categoryId),
       'streamUrl': serializer.toJson<String>(streamUrl),
@@ -2385,6 +2462,7 @@ class Movie extends DataClass implements Insertable<Movie> {
     String? playlistId,
     String? streamId,
     String? name,
+    String? nameKey,
     Value<String?> poster = const Value.absent(),
     Value<String?> categoryId = const Value.absent(),
     String? streamUrl,
@@ -2398,6 +2476,7 @@ class Movie extends DataClass implements Insertable<Movie> {
     playlistId: playlistId ?? this.playlistId,
     streamId: streamId ?? this.streamId,
     name: name ?? this.name,
+    nameKey: nameKey ?? this.nameKey,
     poster: poster.present ? poster.value : this.poster,
     categoryId: categoryId.present ? categoryId.value : this.categoryId,
     streamUrl: streamUrl ?? this.streamUrl,
@@ -2417,6 +2496,7 @@ class Movie extends DataClass implements Insertable<Movie> {
           : this.playlistId,
       streamId: data.streamId.present ? data.streamId.value : this.streamId,
       name: data.name.present ? data.name.value : this.name,
+      nameKey: data.nameKey.present ? data.nameKey.value : this.nameKey,
       poster: data.poster.present ? data.poster.value : this.poster,
       categoryId: data.categoryId.present
           ? data.categoryId.value
@@ -2439,6 +2519,7 @@ class Movie extends DataClass implements Insertable<Movie> {
           ..write('playlistId: $playlistId, ')
           ..write('streamId: $streamId, ')
           ..write('name: $name, ')
+          ..write('nameKey: $nameKey, ')
           ..write('poster: $poster, ')
           ..write('categoryId: $categoryId, ')
           ..write('streamUrl: $streamUrl, ')
@@ -2457,6 +2538,7 @@ class Movie extends DataClass implements Insertable<Movie> {
     playlistId,
     streamId,
     name,
+    nameKey,
     poster,
     categoryId,
     streamUrl,
@@ -2474,6 +2556,7 @@ class Movie extends DataClass implements Insertable<Movie> {
           other.playlistId == this.playlistId &&
           other.streamId == this.streamId &&
           other.name == this.name &&
+          other.nameKey == this.nameKey &&
           other.poster == this.poster &&
           other.categoryId == this.categoryId &&
           other.streamUrl == this.streamUrl &&
@@ -2489,6 +2572,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
   final Value<String> playlistId;
   final Value<String> streamId;
   final Value<String> name;
+  final Value<String> nameKey;
   final Value<String?> poster;
   final Value<String?> categoryId;
   final Value<String> streamUrl;
@@ -2502,6 +2586,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
     this.playlistId = const Value.absent(),
     this.streamId = const Value.absent(),
     this.name = const Value.absent(),
+    this.nameKey = const Value.absent(),
     this.poster = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.streamUrl = const Value.absent(),
@@ -2516,6 +2601,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
     required String playlistId,
     required String streamId,
     required String name,
+    this.nameKey = const Value.absent(),
     this.poster = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.streamUrl = const Value.absent(),
@@ -2532,6 +2618,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
     Expression<String>? playlistId,
     Expression<String>? streamId,
     Expression<String>? name,
+    Expression<String>? nameKey,
     Expression<String>? poster,
     Expression<String>? categoryId,
     Expression<String>? streamUrl,
@@ -2546,6 +2633,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
       if (playlistId != null) 'playlist_id': playlistId,
       if (streamId != null) 'stream_id': streamId,
       if (name != null) 'name': name,
+      if (nameKey != null) 'name_key': nameKey,
       if (poster != null) 'poster': poster,
       if (categoryId != null) 'category_id': categoryId,
       if (streamUrl != null) 'stream_url': streamUrl,
@@ -2562,6 +2650,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
     Value<String>? playlistId,
     Value<String>? streamId,
     Value<String>? name,
+    Value<String>? nameKey,
     Value<String?>? poster,
     Value<String?>? categoryId,
     Value<String>? streamUrl,
@@ -2576,6 +2665,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
       playlistId: playlistId ?? this.playlistId,
       streamId: streamId ?? this.streamId,
       name: name ?? this.name,
+      nameKey: nameKey ?? this.nameKey,
       poster: poster ?? this.poster,
       categoryId: categoryId ?? this.categoryId,
       streamUrl: streamUrl ?? this.streamUrl,
@@ -2601,6 +2691,9 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (nameKey.present) {
+      map['name_key'] = Variable<String>(nameKey.value);
     }
     if (poster.present) {
       map['poster'] = Variable<String>(poster.value);
@@ -2636,6 +2729,7 @@ class MoviesCompanion extends UpdateCompanion<Movie> {
           ..write('playlistId: $playlistId, ')
           ..write('streamId: $streamId, ')
           ..write('name: $name, ')
+          ..write('nameKey: $nameKey, ')
           ..write('poster: $poster, ')
           ..write('categoryId: $categoryId, ')
           ..write('streamUrl: $streamUrl, ')
@@ -2699,6 +2793,18 @@ class $SeriesItemsTable extends SeriesItems
     false,
     type: DriftSqlType.string,
     requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameKeyMeta = const VerificationMeta(
+    'nameKey',
+  );
+  @override
+  late final GeneratedColumn<String> nameKey = GeneratedColumn<String>(
+    'name_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
   );
   static const VerificationMeta _coverMeta = const VerificationMeta('cover');
   @override
@@ -2776,6 +2882,7 @@ class $SeriesItemsTable extends SeriesItems
     playlistId,
     seriesId,
     name,
+    nameKey,
     cover,
     categoryId,
     plot,
@@ -2822,6 +2929,12 @@ class $SeriesItemsTable extends SeriesItems
       );
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('name_key')) {
+      context.handle(
+        _nameKeyMeta,
+        nameKey.isAcceptableOrUnknown(data['name_key']!, _nameKeyMeta),
+      );
     }
     if (data.containsKey('cover')) {
       context.handle(
@@ -2894,6 +3007,10 @@ class $SeriesItemsTable extends SeriesItems
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      nameKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name_key'],
+      )!,
       cover: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}cover'],
@@ -2936,6 +3053,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
   final String playlistId;
   final String seriesId;
   final String name;
+  final String nameKey;
   final String? cover;
   final String? categoryId;
   final String? plot;
@@ -2948,6 +3066,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
     required this.playlistId,
     required this.seriesId,
     required this.name,
+    required this.nameKey,
     this.cover,
     this.categoryId,
     this.plot,
@@ -2963,6 +3082,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
     map['playlist_id'] = Variable<String>(playlistId);
     map['series_id'] = Variable<String>(seriesId);
     map['name'] = Variable<String>(name);
+    map['name_key'] = Variable<String>(nameKey);
     if (!nullToAbsent || cover != null) {
       map['cover'] = Variable<String>(cover);
     }
@@ -2991,6 +3111,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
       playlistId: Value(playlistId),
       seriesId: Value(seriesId),
       name: Value(name),
+      nameKey: Value(nameKey),
       cover: cover == null && nullToAbsent
           ? const Value.absent()
           : Value(cover),
@@ -3019,6 +3140,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
       playlistId: serializer.fromJson<String>(json['playlistId']),
       seriesId: serializer.fromJson<String>(json['seriesId']),
       name: serializer.fromJson<String>(json['name']),
+      nameKey: serializer.fromJson<String>(json['nameKey']),
       cover: serializer.fromJson<String?>(json['cover']),
       categoryId: serializer.fromJson<String?>(json['categoryId']),
       plot: serializer.fromJson<String?>(json['plot']),
@@ -3036,6 +3158,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
       'playlistId': serializer.toJson<String>(playlistId),
       'seriesId': serializer.toJson<String>(seriesId),
       'name': serializer.toJson<String>(name),
+      'nameKey': serializer.toJson<String>(nameKey),
       'cover': serializer.toJson<String?>(cover),
       'categoryId': serializer.toJson<String?>(categoryId),
       'plot': serializer.toJson<String?>(plot),
@@ -3051,6 +3174,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
     String? playlistId,
     String? seriesId,
     String? name,
+    String? nameKey,
     Value<String?> cover = const Value.absent(),
     Value<String?> categoryId = const Value.absent(),
     Value<String?> plot = const Value.absent(),
@@ -3063,6 +3187,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
     playlistId: playlistId ?? this.playlistId,
     seriesId: seriesId ?? this.seriesId,
     name: name ?? this.name,
+    nameKey: nameKey ?? this.nameKey,
     cover: cover.present ? cover.value : this.cover,
     categoryId: categoryId.present ? categoryId.value : this.categoryId,
     plot: plot.present ? plot.value : this.plot,
@@ -3079,6 +3204,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
           : this.playlistId,
       seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
       name: data.name.present ? data.name.value : this.name,
+      nameKey: data.nameKey.present ? data.nameKey.value : this.nameKey,
       cover: data.cover.present ? data.cover.value : this.cover,
       categoryId: data.categoryId.present
           ? data.categoryId.value
@@ -3098,6 +3224,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
           ..write('playlistId: $playlistId, ')
           ..write('seriesId: $seriesId, ')
           ..write('name: $name, ')
+          ..write('nameKey: $nameKey, ')
           ..write('cover: $cover, ')
           ..write('categoryId: $categoryId, ')
           ..write('plot: $plot, ')
@@ -3115,6 +3242,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
     playlistId,
     seriesId,
     name,
+    nameKey,
     cover,
     categoryId,
     plot,
@@ -3131,6 +3259,7 @@ class SeriesItem extends DataClass implements Insertable<SeriesItem> {
           other.playlistId == this.playlistId &&
           other.seriesId == this.seriesId &&
           other.name == this.name &&
+          other.nameKey == this.nameKey &&
           other.cover == this.cover &&
           other.categoryId == this.categoryId &&
           other.plot == this.plot &&
@@ -3145,6 +3274,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
   final Value<String> playlistId;
   final Value<String> seriesId;
   final Value<String> name;
+  final Value<String> nameKey;
   final Value<String?> cover;
   final Value<String?> categoryId;
   final Value<String?> plot;
@@ -3157,6 +3287,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
     this.playlistId = const Value.absent(),
     this.seriesId = const Value.absent(),
     this.name = const Value.absent(),
+    this.nameKey = const Value.absent(),
     this.cover = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.plot = const Value.absent(),
@@ -3170,6 +3301,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
     required String playlistId,
     required String seriesId,
     required String name,
+    this.nameKey = const Value.absent(),
     this.cover = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.plot = const Value.absent(),
@@ -3185,6 +3317,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
     Expression<String>? playlistId,
     Expression<String>? seriesId,
     Expression<String>? name,
+    Expression<String>? nameKey,
     Expression<String>? cover,
     Expression<String>? categoryId,
     Expression<String>? plot,
@@ -3198,6 +3331,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
       if (playlistId != null) 'playlist_id': playlistId,
       if (seriesId != null) 'series_id': seriesId,
       if (name != null) 'name': name,
+      if (nameKey != null) 'name_key': nameKey,
       if (cover != null) 'cover': cover,
       if (categoryId != null) 'category_id': categoryId,
       if (plot != null) 'plot': plot,
@@ -3213,6 +3347,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
     Value<String>? playlistId,
     Value<String>? seriesId,
     Value<String>? name,
+    Value<String>? nameKey,
     Value<String?>? cover,
     Value<String?>? categoryId,
     Value<String?>? plot,
@@ -3226,6 +3361,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
       playlistId: playlistId ?? this.playlistId,
       seriesId: seriesId ?? this.seriesId,
       name: name ?? this.name,
+      nameKey: nameKey ?? this.nameKey,
       cover: cover ?? this.cover,
       categoryId: categoryId ?? this.categoryId,
       plot: plot ?? this.plot,
@@ -3250,6 +3386,9 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (nameKey.present) {
+      map['name_key'] = Variable<String>(nameKey.value);
     }
     if (cover.present) {
       map['cover'] = Variable<String>(cover.value);
@@ -3282,6 +3421,7 @@ class SeriesItemsCompanion extends UpdateCompanion<SeriesItem> {
           ..write('playlistId: $playlistId, ')
           ..write('seriesId: $seriesId, ')
           ..write('name: $name, ')
+          ..write('nameKey: $nameKey, ')
           ..write('cover: $cover, ')
           ..write('categoryId: $categoryId, ')
           ..write('plot: $plot, ')
@@ -4536,6 +4676,18 @@ class $FavoritesTable extends Favorites
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL REFERENCES playlists (id) ON DELETE CASCADE',
   );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<String> profileId = GeneratedColumn<String>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   late final GeneratedColumnWithTypeConverter<ContentKind, String> kind =
       GeneratedColumn<String>(
@@ -4567,7 +4719,14 @@ class $FavoritesTable extends Favorites
     defaultValue: currentDateAndTime,
   );
   @override
-  List<GeneratedColumn> get $columns => [id, playlistId, kind, itemId, addedAt];
+  List<GeneratedColumn> get $columns => [
+    id,
+    playlistId,
+    profileId,
+    kind,
+    itemId,
+    addedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -4591,6 +4750,12 @@ class $FavoritesTable extends Favorites
     } else if (isInserting) {
       context.missing(_playlistIdMeta);
     }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    }
     if (data.containsKey('item_id')) {
       context.handle(
         _itemIdMeta,
@@ -4612,7 +4777,7 @@ class $FavoritesTable extends Favorites
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
   List<Set<GeneratedColumn>> get uniqueKeys => [
-    {playlistId, kind, itemId},
+    {profileId, playlistId, kind, itemId},
   ];
   @override
   Favorite map(Map<String, dynamic> data, {String? tablePrefix}) {
@@ -4625,6 +4790,10 @@ class $FavoritesTable extends Favorites
       playlistId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}playlist_id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile_id'],
       )!,
       kind: $FavoritesTable.$converterkind.fromSql(
         attachedDatabase.typeMapping.read(
@@ -4655,12 +4824,16 @@ class $FavoritesTable extends Favorites
 class Favorite extends DataClass implements Insertable<Favorite> {
   final int id;
   final String playlistId;
+
+  /// Viewer profile (server id); '' for rows written before profiles existed.
+  final String profileId;
   final ContentKind kind;
   final String itemId;
   final DateTime addedAt;
   const Favorite({
     required this.id,
     required this.playlistId,
+    required this.profileId,
     required this.kind,
     required this.itemId,
     required this.addedAt,
@@ -4670,6 +4843,7 @@ class Favorite extends DataClass implements Insertable<Favorite> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['playlist_id'] = Variable<String>(playlistId);
+    map['profile_id'] = Variable<String>(profileId);
     {
       map['kind'] = Variable<String>(
         $FavoritesTable.$converterkind.toSql(kind),
@@ -4684,6 +4858,7 @@ class Favorite extends DataClass implements Insertable<Favorite> {
     return FavoritesCompanion(
       id: Value(id),
       playlistId: Value(playlistId),
+      profileId: Value(profileId),
       kind: Value(kind),
       itemId: Value(itemId),
       addedAt: Value(addedAt),
@@ -4698,6 +4873,7 @@ class Favorite extends DataClass implements Insertable<Favorite> {
     return Favorite(
       id: serializer.fromJson<int>(json['id']),
       playlistId: serializer.fromJson<String>(json['playlistId']),
+      profileId: serializer.fromJson<String>(json['profileId']),
       kind: $FavoritesTable.$converterkind.fromJson(
         serializer.fromJson<String>(json['kind']),
       ),
@@ -4711,6 +4887,7 @@ class Favorite extends DataClass implements Insertable<Favorite> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'playlistId': serializer.toJson<String>(playlistId),
+      'profileId': serializer.toJson<String>(profileId),
       'kind': serializer.toJson<String>(
         $FavoritesTable.$converterkind.toJson(kind),
       ),
@@ -4722,12 +4899,14 @@ class Favorite extends DataClass implements Insertable<Favorite> {
   Favorite copyWith({
     int? id,
     String? playlistId,
+    String? profileId,
     ContentKind? kind,
     String? itemId,
     DateTime? addedAt,
   }) => Favorite(
     id: id ?? this.id,
     playlistId: playlistId ?? this.playlistId,
+    profileId: profileId ?? this.profileId,
     kind: kind ?? this.kind,
     itemId: itemId ?? this.itemId,
     addedAt: addedAt ?? this.addedAt,
@@ -4738,6 +4917,7 @@ class Favorite extends DataClass implements Insertable<Favorite> {
       playlistId: data.playlistId.present
           ? data.playlistId.value
           : this.playlistId,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
       kind: data.kind.present ? data.kind.value : this.kind,
       itemId: data.itemId.present ? data.itemId.value : this.itemId,
       addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
@@ -4749,6 +4929,7 @@ class Favorite extends DataClass implements Insertable<Favorite> {
     return (StringBuffer('Favorite(')
           ..write('id: $id, ')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('kind: $kind, ')
           ..write('itemId: $itemId, ')
           ..write('addedAt: $addedAt')
@@ -4757,13 +4938,15 @@ class Favorite extends DataClass implements Insertable<Favorite> {
   }
 
   @override
-  int get hashCode => Object.hash(id, playlistId, kind, itemId, addedAt);
+  int get hashCode =>
+      Object.hash(id, playlistId, profileId, kind, itemId, addedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Favorite &&
           other.id == this.id &&
           other.playlistId == this.playlistId &&
+          other.profileId == this.profileId &&
           other.kind == this.kind &&
           other.itemId == this.itemId &&
           other.addedAt == this.addedAt);
@@ -4772,12 +4955,14 @@ class Favorite extends DataClass implements Insertable<Favorite> {
 class FavoritesCompanion extends UpdateCompanion<Favorite> {
   final Value<int> id;
   final Value<String> playlistId;
+  final Value<String> profileId;
   final Value<ContentKind> kind;
   final Value<String> itemId;
   final Value<DateTime> addedAt;
   const FavoritesCompanion({
     this.id = const Value.absent(),
     this.playlistId = const Value.absent(),
+    this.profileId = const Value.absent(),
     this.kind = const Value.absent(),
     this.itemId = const Value.absent(),
     this.addedAt = const Value.absent(),
@@ -4785,6 +4970,7 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
   FavoritesCompanion.insert({
     this.id = const Value.absent(),
     required String playlistId,
+    this.profileId = const Value.absent(),
     required ContentKind kind,
     required String itemId,
     this.addedAt = const Value.absent(),
@@ -4794,6 +4980,7 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
   static Insertable<Favorite> custom({
     Expression<int>? id,
     Expression<String>? playlistId,
+    Expression<String>? profileId,
     Expression<String>? kind,
     Expression<String>? itemId,
     Expression<DateTime>? addedAt,
@@ -4801,6 +4988,7 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (playlistId != null) 'playlist_id': playlistId,
+      if (profileId != null) 'profile_id': profileId,
       if (kind != null) 'kind': kind,
       if (itemId != null) 'item_id': itemId,
       if (addedAt != null) 'added_at': addedAt,
@@ -4810,6 +4998,7 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
   FavoritesCompanion copyWith({
     Value<int>? id,
     Value<String>? playlistId,
+    Value<String>? profileId,
     Value<ContentKind>? kind,
     Value<String>? itemId,
     Value<DateTime>? addedAt,
@@ -4817,6 +5006,7 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
     return FavoritesCompanion(
       id: id ?? this.id,
       playlistId: playlistId ?? this.playlistId,
+      profileId: profileId ?? this.profileId,
       kind: kind ?? this.kind,
       itemId: itemId ?? this.itemId,
       addedAt: addedAt ?? this.addedAt,
@@ -4831,6 +5021,9 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
     }
     if (playlistId.present) {
       map['playlist_id'] = Variable<String>(playlistId.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<String>(profileId.value);
     }
     if (kind.present) {
       map['kind'] = Variable<String>(
@@ -4851,6 +5044,7 @@ class FavoritesCompanion extends UpdateCompanion<Favorite> {
     return (StringBuffer('FavoritesCompanion(')
           ..write('id: $id, ')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('kind: $kind, ')
           ..write('itemId: $itemId, ')
           ..write('addedAt: $addedAt')
@@ -4888,6 +5082,18 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL REFERENCES playlists (id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<String> profileId = GeneratedColumn<String>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
   );
   @override
   late final GeneratedColumnWithTypeConverter<ContentKind, String> kind =
@@ -4954,16 +5160,29 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
     requiredDuringInsert: false,
     defaultValue: currentDateAndTime,
   );
+  static const VerificationMeta _syncedAtMeta = const VerificationMeta(
+    'syncedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> syncedAt = GeneratedColumn<DateTime>(
+    'synced_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
     playlistId,
+    profileId,
     kind,
     itemId,
     parentId,
     positionMs,
     durationMs,
     watchedAt,
+    syncedAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4987,6 +5206,12 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
       );
     } else if (isInserting) {
       context.missing(_playlistIdMeta);
+    }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
     }
     if (data.containsKey('item_id')) {
       context.handle(
@@ -5020,6 +5245,12 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
         watchedAt.isAcceptableOrUnknown(data['watched_at']!, _watchedAtMeta),
       );
     }
+    if (data.containsKey('synced_at')) {
+      context.handle(
+        _syncedAtMeta,
+        syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta),
+      );
+    }
     return context;
   }
 
@@ -5027,7 +5258,7 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
   List<Set<GeneratedColumn>> get uniqueKeys => [
-    {playlistId, kind, itemId},
+    {profileId, playlistId, kind, itemId},
   ];
   @override
   HistoryData map(Map<String, dynamic> data, {String? tablePrefix}) {
@@ -5040,6 +5271,10 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
       playlistId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}playlist_id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile_id'],
       )!,
       kind: $HistoryTable.$converterkind.fromSql(
         attachedDatabase.typeMapping.read(
@@ -5067,6 +5302,10 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}watched_at'],
       )!,
+      syncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}synced_at'],
+      ),
     );
   }
 
@@ -5082,6 +5321,9 @@ class $HistoryTable extends History with TableInfo<$HistoryTable, HistoryData> {
 class HistoryData extends DataClass implements Insertable<HistoryData> {
   final int id;
   final String playlistId;
+
+  /// Viewer profile (server id); '' for rows written before profiles existed.
+  final String profileId;
   final ContentKind kind;
 
   /// Channel streamId, movie streamId or episodeId.
@@ -5092,21 +5334,27 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
   final int positionMs;
   final int durationMs;
   final DateTime watchedAt;
+
+  /// Last time this row was uploaded to `watch_progress`; null = pending upload.
+  final DateTime? syncedAt;
   const HistoryData({
     required this.id,
     required this.playlistId,
+    required this.profileId,
     required this.kind,
     required this.itemId,
     this.parentId,
     required this.positionMs,
     required this.durationMs,
     required this.watchedAt,
+    this.syncedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['playlist_id'] = Variable<String>(playlistId);
+    map['profile_id'] = Variable<String>(profileId);
     {
       map['kind'] = Variable<String>($HistoryTable.$converterkind.toSql(kind));
     }
@@ -5117,6 +5365,9 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
     map['position_ms'] = Variable<int>(positionMs);
     map['duration_ms'] = Variable<int>(durationMs);
     map['watched_at'] = Variable<DateTime>(watchedAt);
+    if (!nullToAbsent || syncedAt != null) {
+      map['synced_at'] = Variable<DateTime>(syncedAt);
+    }
     return map;
   }
 
@@ -5124,6 +5375,7 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
     return HistoryCompanion(
       id: Value(id),
       playlistId: Value(playlistId),
+      profileId: Value(profileId),
       kind: Value(kind),
       itemId: Value(itemId),
       parentId: parentId == null && nullToAbsent
@@ -5132,6 +5384,9 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
       positionMs: Value(positionMs),
       durationMs: Value(durationMs),
       watchedAt: Value(watchedAt),
+      syncedAt: syncedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncedAt),
     );
   }
 
@@ -5143,6 +5398,7 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
     return HistoryData(
       id: serializer.fromJson<int>(json['id']),
       playlistId: serializer.fromJson<String>(json['playlistId']),
+      profileId: serializer.fromJson<String>(json['profileId']),
       kind: $HistoryTable.$converterkind.fromJson(
         serializer.fromJson<String>(json['kind']),
       ),
@@ -5151,6 +5407,7 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
       positionMs: serializer.fromJson<int>(json['positionMs']),
       durationMs: serializer.fromJson<int>(json['durationMs']),
       watchedAt: serializer.fromJson<DateTime>(json['watchedAt']),
+      syncedAt: serializer.fromJson<DateTime?>(json['syncedAt']),
     );
   }
   @override
@@ -5159,6 +5416,7 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'playlistId': serializer.toJson<String>(playlistId),
+      'profileId': serializer.toJson<String>(profileId),
       'kind': serializer.toJson<String>(
         $HistoryTable.$converterkind.toJson(kind),
       ),
@@ -5167,27 +5425,32 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
       'positionMs': serializer.toJson<int>(positionMs),
       'durationMs': serializer.toJson<int>(durationMs),
       'watchedAt': serializer.toJson<DateTime>(watchedAt),
+      'syncedAt': serializer.toJson<DateTime?>(syncedAt),
     };
   }
 
   HistoryData copyWith({
     int? id,
     String? playlistId,
+    String? profileId,
     ContentKind? kind,
     String? itemId,
     Value<String?> parentId = const Value.absent(),
     int? positionMs,
     int? durationMs,
     DateTime? watchedAt,
+    Value<DateTime?> syncedAt = const Value.absent(),
   }) => HistoryData(
     id: id ?? this.id,
     playlistId: playlistId ?? this.playlistId,
+    profileId: profileId ?? this.profileId,
     kind: kind ?? this.kind,
     itemId: itemId ?? this.itemId,
     parentId: parentId.present ? parentId.value : this.parentId,
     positionMs: positionMs ?? this.positionMs,
     durationMs: durationMs ?? this.durationMs,
     watchedAt: watchedAt ?? this.watchedAt,
+    syncedAt: syncedAt.present ? syncedAt.value : this.syncedAt,
   );
   HistoryData copyWithCompanion(HistoryCompanion data) {
     return HistoryData(
@@ -5195,6 +5458,7 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
       playlistId: data.playlistId.present
           ? data.playlistId.value
           : this.playlistId,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
       kind: data.kind.present ? data.kind.value : this.kind,
       itemId: data.itemId.present ? data.itemId.value : this.itemId,
       parentId: data.parentId.present ? data.parentId.value : this.parentId,
@@ -5205,6 +5469,7 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
           ? data.durationMs.value
           : this.durationMs,
       watchedAt: data.watchedAt.present ? data.watchedAt.value : this.watchedAt,
+      syncedAt: data.syncedAt.present ? data.syncedAt.value : this.syncedAt,
     );
   }
 
@@ -5213,12 +5478,14 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
     return (StringBuffer('HistoryData(')
           ..write('id: $id, ')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('kind: $kind, ')
           ..write('itemId: $itemId, ')
           ..write('parentId: $parentId, ')
           ..write('positionMs: $positionMs, ')
           ..write('durationMs: $durationMs, ')
-          ..write('watchedAt: $watchedAt')
+          ..write('watchedAt: $watchedAt, ')
+          ..write('syncedAt: $syncedAt')
           ..write(')'))
         .toString();
   }
@@ -5227,12 +5494,14 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
   int get hashCode => Object.hash(
     id,
     playlistId,
+    profileId,
     kind,
     itemId,
     parentId,
     positionMs,
     durationMs,
     watchedAt,
+    syncedAt,
   );
   @override
   bool operator ==(Object other) =>
@@ -5240,86 +5509,102 @@ class HistoryData extends DataClass implements Insertable<HistoryData> {
       (other is HistoryData &&
           other.id == this.id &&
           other.playlistId == this.playlistId &&
+          other.profileId == this.profileId &&
           other.kind == this.kind &&
           other.itemId == this.itemId &&
           other.parentId == this.parentId &&
           other.positionMs == this.positionMs &&
           other.durationMs == this.durationMs &&
-          other.watchedAt == this.watchedAt);
+          other.watchedAt == this.watchedAt &&
+          other.syncedAt == this.syncedAt);
 }
 
 class HistoryCompanion extends UpdateCompanion<HistoryData> {
   final Value<int> id;
   final Value<String> playlistId;
+  final Value<String> profileId;
   final Value<ContentKind> kind;
   final Value<String> itemId;
   final Value<String?> parentId;
   final Value<int> positionMs;
   final Value<int> durationMs;
   final Value<DateTime> watchedAt;
+  final Value<DateTime?> syncedAt;
   const HistoryCompanion({
     this.id = const Value.absent(),
     this.playlistId = const Value.absent(),
+    this.profileId = const Value.absent(),
     this.kind = const Value.absent(),
     this.itemId = const Value.absent(),
     this.parentId = const Value.absent(),
     this.positionMs = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.watchedAt = const Value.absent(),
+    this.syncedAt = const Value.absent(),
   });
   HistoryCompanion.insert({
     this.id = const Value.absent(),
     required String playlistId,
+    this.profileId = const Value.absent(),
     required ContentKind kind,
     required String itemId,
     this.parentId = const Value.absent(),
     this.positionMs = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.watchedAt = const Value.absent(),
+    this.syncedAt = const Value.absent(),
   }) : playlistId = Value(playlistId),
        kind = Value(kind),
        itemId = Value(itemId);
   static Insertable<HistoryData> custom({
     Expression<int>? id,
     Expression<String>? playlistId,
+    Expression<String>? profileId,
     Expression<String>? kind,
     Expression<String>? itemId,
     Expression<String>? parentId,
     Expression<int>? positionMs,
     Expression<int>? durationMs,
     Expression<DateTime>? watchedAt,
+    Expression<DateTime>? syncedAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (playlistId != null) 'playlist_id': playlistId,
+      if (profileId != null) 'profile_id': profileId,
       if (kind != null) 'kind': kind,
       if (itemId != null) 'item_id': itemId,
       if (parentId != null) 'parent_id': parentId,
       if (positionMs != null) 'position_ms': positionMs,
       if (durationMs != null) 'duration_ms': durationMs,
       if (watchedAt != null) 'watched_at': watchedAt,
+      if (syncedAt != null) 'synced_at': syncedAt,
     });
   }
 
   HistoryCompanion copyWith({
     Value<int>? id,
     Value<String>? playlistId,
+    Value<String>? profileId,
     Value<ContentKind>? kind,
     Value<String>? itemId,
     Value<String?>? parentId,
     Value<int>? positionMs,
     Value<int>? durationMs,
     Value<DateTime>? watchedAt,
+    Value<DateTime?>? syncedAt,
   }) {
     return HistoryCompanion(
       id: id ?? this.id,
       playlistId: playlistId ?? this.playlistId,
+      profileId: profileId ?? this.profileId,
       kind: kind ?? this.kind,
       itemId: itemId ?? this.itemId,
       parentId: parentId ?? this.parentId,
       positionMs: positionMs ?? this.positionMs,
       durationMs: durationMs ?? this.durationMs,
       watchedAt: watchedAt ?? this.watchedAt,
+      syncedAt: syncedAt ?? this.syncedAt,
     );
   }
 
@@ -5331,6 +5616,9 @@ class HistoryCompanion extends UpdateCompanion<HistoryData> {
     }
     if (playlistId.present) {
       map['playlist_id'] = Variable<String>(playlistId.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<String>(profileId.value);
     }
     if (kind.present) {
       map['kind'] = Variable<String>(
@@ -5352,6 +5640,9 @@ class HistoryCompanion extends UpdateCompanion<HistoryData> {
     if (watchedAt.present) {
       map['watched_at'] = Variable<DateTime>(watchedAt.value);
     }
+    if (syncedAt.present) {
+      map['synced_at'] = Variable<DateTime>(syncedAt.value);
+    }
     return map;
   }
 
@@ -5360,12 +5651,14 @@ class HistoryCompanion extends UpdateCompanion<HistoryData> {
     return (StringBuffer('HistoryCompanion(')
           ..write('id: $id, ')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('kind: $kind, ')
           ..write('itemId: $itemId, ')
           ..write('parentId: $parentId, ')
           ..write('positionMs: $positionMs, ')
           ..write('durationMs: $durationMs, ')
-          ..write('watchedAt: $watchedAt')
+          ..write('watchedAt: $watchedAt, ')
+          ..write('syncedAt: $syncedAt')
           ..write(')'))
         .toString();
   }
@@ -5402,6 +5695,18 @@ class $ChannelGroupsTable extends ChannelGroups
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL REFERENCES playlists (id) ON DELETE CASCADE',
   );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<String> profileId = GeneratedColumn<String>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
@@ -5412,7 +5717,7 @@ class $ChannelGroupsTable extends ChannelGroups
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [id, playlistId, name];
+  List<GeneratedColumn> get $columns => [id, playlistId, profileId, name];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -5435,6 +5740,12 @@ class $ChannelGroupsTable extends ChannelGroups
       );
     } else if (isInserting) {
       context.missing(_playlistIdMeta);
+    }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
     }
     if (data.containsKey('name')) {
       context.handle(
@@ -5461,6 +5772,10 @@ class $ChannelGroupsTable extends ChannelGroups
         DriftSqlType.string,
         data['${effectivePrefix}playlist_id'],
       )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile_id'],
+      )!,
       name: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}name'],
@@ -5477,10 +5792,12 @@ class $ChannelGroupsTable extends ChannelGroups
 class ChannelGroup extends DataClass implements Insertable<ChannelGroup> {
   final int id;
   final String playlistId;
+  final String profileId;
   final String name;
   const ChannelGroup({
     required this.id,
     required this.playlistId,
+    required this.profileId,
     required this.name,
   });
   @override
@@ -5488,6 +5805,7 @@ class ChannelGroup extends DataClass implements Insertable<ChannelGroup> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['playlist_id'] = Variable<String>(playlistId);
+    map['profile_id'] = Variable<String>(profileId);
     map['name'] = Variable<String>(name);
     return map;
   }
@@ -5496,6 +5814,7 @@ class ChannelGroup extends DataClass implements Insertable<ChannelGroup> {
     return ChannelGroupsCompanion(
       id: Value(id),
       playlistId: Value(playlistId),
+      profileId: Value(profileId),
       name: Value(name),
     );
   }
@@ -5508,6 +5827,7 @@ class ChannelGroup extends DataClass implements Insertable<ChannelGroup> {
     return ChannelGroup(
       id: serializer.fromJson<int>(json['id']),
       playlistId: serializer.fromJson<String>(json['playlistId']),
+      profileId: serializer.fromJson<String>(json['profileId']),
       name: serializer.fromJson<String>(json['name']),
     );
   }
@@ -5517,22 +5837,29 @@ class ChannelGroup extends DataClass implements Insertable<ChannelGroup> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'playlistId': serializer.toJson<String>(playlistId),
+      'profileId': serializer.toJson<String>(profileId),
       'name': serializer.toJson<String>(name),
     };
   }
 
-  ChannelGroup copyWith({int? id, String? playlistId, String? name}) =>
-      ChannelGroup(
-        id: id ?? this.id,
-        playlistId: playlistId ?? this.playlistId,
-        name: name ?? this.name,
-      );
+  ChannelGroup copyWith({
+    int? id,
+    String? playlistId,
+    String? profileId,
+    String? name,
+  }) => ChannelGroup(
+    id: id ?? this.id,
+    playlistId: playlistId ?? this.playlistId,
+    profileId: profileId ?? this.profileId,
+    name: name ?? this.name,
+  );
   ChannelGroup copyWithCompanion(ChannelGroupsCompanion data) {
     return ChannelGroup(
       id: data.id.present ? data.id.value : this.id,
       playlistId: data.playlistId.present
           ? data.playlistId.value
           : this.playlistId,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
       name: data.name.present ? data.name.value : this.name,
     );
   }
@@ -5542,45 +5869,52 @@ class ChannelGroup extends DataClass implements Insertable<ChannelGroup> {
     return (StringBuffer('ChannelGroup(')
           ..write('id: $id, ')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('name: $name')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, playlistId, name);
+  int get hashCode => Object.hash(id, playlistId, profileId, name);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ChannelGroup &&
           other.id == this.id &&
           other.playlistId == this.playlistId &&
+          other.profileId == this.profileId &&
           other.name == this.name);
 }
 
 class ChannelGroupsCompanion extends UpdateCompanion<ChannelGroup> {
   final Value<int> id;
   final Value<String> playlistId;
+  final Value<String> profileId;
   final Value<String> name;
   const ChannelGroupsCompanion({
     this.id = const Value.absent(),
     this.playlistId = const Value.absent(),
+    this.profileId = const Value.absent(),
     this.name = const Value.absent(),
   });
   ChannelGroupsCompanion.insert({
     this.id = const Value.absent(),
     required String playlistId,
+    this.profileId = const Value.absent(),
     required String name,
   }) : playlistId = Value(playlistId),
        name = Value(name);
   static Insertable<ChannelGroup> custom({
     Expression<int>? id,
     Expression<String>? playlistId,
+    Expression<String>? profileId,
     Expression<String>? name,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (playlistId != null) 'playlist_id': playlistId,
+      if (profileId != null) 'profile_id': profileId,
       if (name != null) 'name': name,
     });
   }
@@ -5588,11 +5922,13 @@ class ChannelGroupsCompanion extends UpdateCompanion<ChannelGroup> {
   ChannelGroupsCompanion copyWith({
     Value<int>? id,
     Value<String>? playlistId,
+    Value<String>? profileId,
     Value<String>? name,
   }) {
     return ChannelGroupsCompanion(
       id: id ?? this.id,
       playlistId: playlistId ?? this.playlistId,
+      profileId: profileId ?? this.profileId,
       name: name ?? this.name,
     );
   }
@@ -5606,6 +5942,9 @@ class ChannelGroupsCompanion extends UpdateCompanion<ChannelGroup> {
     if (playlistId.present) {
       map['playlist_id'] = Variable<String>(playlistId.value);
     }
+    if (profileId.present) {
+      map['profile_id'] = Variable<String>(profileId.value);
+    }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
     }
@@ -5617,6 +5956,7 @@ class ChannelGroupsCompanion extends UpdateCompanion<ChannelGroup> {
     return (StringBuffer('ChannelGroupsCompanion(')
           ..write('id: $id, ')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('name: $name')
           ..write(')'))
         .toString();
@@ -5907,6 +6247,18 @@ class $LockedChannelsTable extends LockedChannels
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL REFERENCES playlists (id) ON DELETE CASCADE',
   );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<String> profileId = GeneratedColumn<String>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _streamIdMeta = const VerificationMeta(
     'streamId',
   );
@@ -5919,7 +6271,7 @@ class $LockedChannelsTable extends LockedChannels
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [playlistId, streamId];
+  List<GeneratedColumn> get $columns => [playlistId, profileId, streamId];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -5940,6 +6292,12 @@ class $LockedChannelsTable extends LockedChannels
     } else if (isInserting) {
       context.missing(_playlistIdMeta);
     }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    }
     if (data.containsKey('stream_id')) {
       context.handle(
         _streamIdMeta,
@@ -5952,7 +6310,7 @@ class $LockedChannelsTable extends LockedChannels
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {playlistId, streamId};
+  Set<GeneratedColumn> get $primaryKey => {profileId, playlistId, streamId};
   @override
   LockedChannel map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
@@ -5960,6 +6318,10 @@ class $LockedChannelsTable extends LockedChannels
       playlistId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}playlist_id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile_id'],
       )!,
       streamId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -5976,12 +6338,18 @@ class $LockedChannelsTable extends LockedChannels
 
 class LockedChannel extends DataClass implements Insertable<LockedChannel> {
   final String playlistId;
+  final String profileId;
   final String streamId;
-  const LockedChannel({required this.playlistId, required this.streamId});
+  const LockedChannel({
+    required this.playlistId,
+    required this.profileId,
+    required this.streamId,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['playlist_id'] = Variable<String>(playlistId);
+    map['profile_id'] = Variable<String>(profileId);
     map['stream_id'] = Variable<String>(streamId);
     return map;
   }
@@ -5989,6 +6357,7 @@ class LockedChannel extends DataClass implements Insertable<LockedChannel> {
   LockedChannelsCompanion toCompanion(bool nullToAbsent) {
     return LockedChannelsCompanion(
       playlistId: Value(playlistId),
+      profileId: Value(profileId),
       streamId: Value(streamId),
     );
   }
@@ -6000,6 +6369,7 @@ class LockedChannel extends DataClass implements Insertable<LockedChannel> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return LockedChannel(
       playlistId: serializer.fromJson<String>(json['playlistId']),
+      profileId: serializer.fromJson<String>(json['profileId']),
       streamId: serializer.fromJson<String>(json['streamId']),
     );
   }
@@ -6008,20 +6378,26 @@ class LockedChannel extends DataClass implements Insertable<LockedChannel> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'playlistId': serializer.toJson<String>(playlistId),
+      'profileId': serializer.toJson<String>(profileId),
       'streamId': serializer.toJson<String>(streamId),
     };
   }
 
-  LockedChannel copyWith({String? playlistId, String? streamId}) =>
-      LockedChannel(
-        playlistId: playlistId ?? this.playlistId,
-        streamId: streamId ?? this.streamId,
-      );
+  LockedChannel copyWith({
+    String? playlistId,
+    String? profileId,
+    String? streamId,
+  }) => LockedChannel(
+    playlistId: playlistId ?? this.playlistId,
+    profileId: profileId ?? this.profileId,
+    streamId: streamId ?? this.streamId,
+  );
   LockedChannel copyWithCompanion(LockedChannelsCompanion data) {
     return LockedChannel(
       playlistId: data.playlistId.present
           ? data.playlistId.value
           : this.playlistId,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
       streamId: data.streamId.present ? data.streamId.value : this.streamId,
     );
   }
@@ -6030,43 +6406,50 @@ class LockedChannel extends DataClass implements Insertable<LockedChannel> {
   String toString() {
     return (StringBuffer('LockedChannel(')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('streamId: $streamId')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(playlistId, streamId);
+  int get hashCode => Object.hash(playlistId, profileId, streamId);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is LockedChannel &&
           other.playlistId == this.playlistId &&
+          other.profileId == this.profileId &&
           other.streamId == this.streamId);
 }
 
 class LockedChannelsCompanion extends UpdateCompanion<LockedChannel> {
   final Value<String> playlistId;
+  final Value<String> profileId;
   final Value<String> streamId;
   final Value<int> rowid;
   const LockedChannelsCompanion({
     this.playlistId = const Value.absent(),
+    this.profileId = const Value.absent(),
     this.streamId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   LockedChannelsCompanion.insert({
     required String playlistId,
+    this.profileId = const Value.absent(),
     required String streamId,
     this.rowid = const Value.absent(),
   }) : playlistId = Value(playlistId),
        streamId = Value(streamId);
   static Insertable<LockedChannel> custom({
     Expression<String>? playlistId,
+    Expression<String>? profileId,
     Expression<String>? streamId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (playlistId != null) 'playlist_id': playlistId,
+      if (profileId != null) 'profile_id': profileId,
       if (streamId != null) 'stream_id': streamId,
       if (rowid != null) 'rowid': rowid,
     });
@@ -6074,11 +6457,13 @@ class LockedChannelsCompanion extends UpdateCompanion<LockedChannel> {
 
   LockedChannelsCompanion copyWith({
     Value<String>? playlistId,
+    Value<String>? profileId,
     Value<String>? streamId,
     Value<int>? rowid,
   }) {
     return LockedChannelsCompanion(
       playlistId: playlistId ?? this.playlistId,
+      profileId: profileId ?? this.profileId,
       streamId: streamId ?? this.streamId,
       rowid: rowid ?? this.rowid,
     );
@@ -6089,6 +6474,9 @@ class LockedChannelsCompanion extends UpdateCompanion<LockedChannel> {
     final map = <String, Expression>{};
     if (playlistId.present) {
       map['playlist_id'] = Variable<String>(playlistId.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<String>(profileId.value);
     }
     if (streamId.present) {
       map['stream_id'] = Variable<String>(streamId.value);
@@ -6103,6 +6491,7 @@ class LockedChannelsCompanion extends UpdateCompanion<LockedChannel> {
   String toString() {
     return (StringBuffer('LockedChannelsCompanion(')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('streamId: $streamId, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -6128,6 +6517,18 @@ class $HiddenCategoriesTable extends HiddenCategories
     requiredDuringInsert: true,
     $customConstraints: 'NOT NULL REFERENCES playlists (id) ON DELETE CASCADE',
   );
+  static const VerificationMeta _profileIdMeta = const VerificationMeta(
+    'profileId',
+  );
+  @override
+  late final GeneratedColumn<String> profileId = GeneratedColumn<String>(
+    'profile_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   late final GeneratedColumnWithTypeConverter<ContentKind, String> kind =
       GeneratedColumn<String>(
@@ -6149,7 +6550,12 @@ class $HiddenCategoriesTable extends HiddenCategories
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [playlistId, kind, categoryId];
+  List<GeneratedColumn> get $columns => [
+    playlistId,
+    profileId,
+    kind,
+    categoryId,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -6170,6 +6576,12 @@ class $HiddenCategoriesTable extends HiddenCategories
     } else if (isInserting) {
       context.missing(_playlistIdMeta);
     }
+    if (data.containsKey('profile_id')) {
+      context.handle(
+        _profileIdMeta,
+        profileId.isAcceptableOrUnknown(data['profile_id']!, _profileIdMeta),
+      );
+    }
     if (data.containsKey('category_id')) {
       context.handle(
         _categoryIdMeta,
@@ -6182,7 +6594,12 @@ class $HiddenCategoriesTable extends HiddenCategories
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {playlistId, kind, categoryId};
+  Set<GeneratedColumn> get $primaryKey => {
+    profileId,
+    playlistId,
+    kind,
+    categoryId,
+  };
   @override
   HiddenCategory map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
@@ -6190,6 +6607,10 @@ class $HiddenCategoriesTable extends HiddenCategories
       playlistId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}playlist_id'],
+      )!,
+      profileId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}profile_id'],
       )!,
       kind: $HiddenCategoriesTable.$converterkind.fromSql(
         attachedDatabase.typeMapping.read(
@@ -6215,10 +6636,12 @@ class $HiddenCategoriesTable extends HiddenCategories
 
 class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
   final String playlistId;
+  final String profileId;
   final ContentKind kind;
   final String categoryId;
   const HiddenCategory({
     required this.playlistId,
+    required this.profileId,
     required this.kind,
     required this.categoryId,
   });
@@ -6226,6 +6649,7 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['playlist_id'] = Variable<String>(playlistId);
+    map['profile_id'] = Variable<String>(profileId);
     {
       map['kind'] = Variable<String>(
         $HiddenCategoriesTable.$converterkind.toSql(kind),
@@ -6238,6 +6662,7 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
   HiddenCategoriesCompanion toCompanion(bool nullToAbsent) {
     return HiddenCategoriesCompanion(
       playlistId: Value(playlistId),
+      profileId: Value(profileId),
       kind: Value(kind),
       categoryId: Value(categoryId),
     );
@@ -6250,6 +6675,7 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return HiddenCategory(
       playlistId: serializer.fromJson<String>(json['playlistId']),
+      profileId: serializer.fromJson<String>(json['profileId']),
       kind: $HiddenCategoriesTable.$converterkind.fromJson(
         serializer.fromJson<String>(json['kind']),
       ),
@@ -6261,6 +6687,7 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'playlistId': serializer.toJson<String>(playlistId),
+      'profileId': serializer.toJson<String>(profileId),
       'kind': serializer.toJson<String>(
         $HiddenCategoriesTable.$converterkind.toJson(kind),
       ),
@@ -6270,10 +6697,12 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
 
   HiddenCategory copyWith({
     String? playlistId,
+    String? profileId,
     ContentKind? kind,
     String? categoryId,
   }) => HiddenCategory(
     playlistId: playlistId ?? this.playlistId,
+    profileId: profileId ?? this.profileId,
     kind: kind ?? this.kind,
     categoryId: categoryId ?? this.categoryId,
   );
@@ -6282,6 +6711,7 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
       playlistId: data.playlistId.present
           ? data.playlistId.value
           : this.playlistId,
+      profileId: data.profileId.present ? data.profileId.value : this.profileId,
       kind: data.kind.present ? data.kind.value : this.kind,
       categoryId: data.categoryId.present
           ? data.categoryId.value
@@ -6293,6 +6723,7 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
   String toString() {
     return (StringBuffer('HiddenCategory(')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('kind: $kind, ')
           ..write('categoryId: $categoryId')
           ..write(')'))
@@ -6300,29 +6731,33 @@ class HiddenCategory extends DataClass implements Insertable<HiddenCategory> {
   }
 
   @override
-  int get hashCode => Object.hash(playlistId, kind, categoryId);
+  int get hashCode => Object.hash(playlistId, profileId, kind, categoryId);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is HiddenCategory &&
           other.playlistId == this.playlistId &&
+          other.profileId == this.profileId &&
           other.kind == this.kind &&
           other.categoryId == this.categoryId);
 }
 
 class HiddenCategoriesCompanion extends UpdateCompanion<HiddenCategory> {
   final Value<String> playlistId;
+  final Value<String> profileId;
   final Value<ContentKind> kind;
   final Value<String> categoryId;
   final Value<int> rowid;
   const HiddenCategoriesCompanion({
     this.playlistId = const Value.absent(),
+    this.profileId = const Value.absent(),
     this.kind = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   HiddenCategoriesCompanion.insert({
     required String playlistId,
+    this.profileId = const Value.absent(),
     required ContentKind kind,
     required String categoryId,
     this.rowid = const Value.absent(),
@@ -6331,12 +6766,14 @@ class HiddenCategoriesCompanion extends UpdateCompanion<HiddenCategory> {
        categoryId = Value(categoryId);
   static Insertable<HiddenCategory> custom({
     Expression<String>? playlistId,
+    Expression<String>? profileId,
     Expression<String>? kind,
     Expression<String>? categoryId,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (playlistId != null) 'playlist_id': playlistId,
+      if (profileId != null) 'profile_id': profileId,
       if (kind != null) 'kind': kind,
       if (categoryId != null) 'category_id': categoryId,
       if (rowid != null) 'rowid': rowid,
@@ -6345,12 +6782,14 @@ class HiddenCategoriesCompanion extends UpdateCompanion<HiddenCategory> {
 
   HiddenCategoriesCompanion copyWith({
     Value<String>? playlistId,
+    Value<String>? profileId,
     Value<ContentKind>? kind,
     Value<String>? categoryId,
     Value<int>? rowid,
   }) {
     return HiddenCategoriesCompanion(
       playlistId: playlistId ?? this.playlistId,
+      profileId: profileId ?? this.profileId,
       kind: kind ?? this.kind,
       categoryId: categoryId ?? this.categoryId,
       rowid: rowid ?? this.rowid,
@@ -6362,6 +6801,9 @@ class HiddenCategoriesCompanion extends UpdateCompanion<HiddenCategory> {
     final map = <String, Expression>{};
     if (playlistId.present) {
       map['playlist_id'] = Variable<String>(playlistId.value);
+    }
+    if (profileId.present) {
+      map['profile_id'] = Variable<String>(profileId.value);
     }
     if (kind.present) {
       map['kind'] = Variable<String>(
@@ -6381,6 +6823,7 @@ class HiddenCategoriesCompanion extends UpdateCompanion<HiddenCategory> {
   String toString() {
     return (StringBuffer('HiddenCategoriesCompanion(')
           ..write('playlistId: $playlistId, ')
+          ..write('profileId: $profileId, ')
           ..write('kind: $kind, ')
           ..write('categoryId: $categoryId, ')
           ..write('rowid: $rowid')
@@ -6407,9 +6850,57 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $HiddenCategoriesTable hiddenCategories = $HiddenCategoriesTable(
     this,
   );
+  late final Index categoriesPlaylistKind = Index(
+    'categories_playlist_kind',
+    'CREATE INDEX categories_playlist_kind ON categories (playlist_id, kind, position)',
+  );
+  late final Index channelsPlaylistCategory = Index(
+    'channels_playlist_category',
+    'CREATE INDEX channels_playlist_category ON channels (playlist_id, category_id, position)',
+  );
+  late final Index channelsNameKey = Index(
+    'channels_name_key',
+    'CREATE INDEX channels_name_key ON channels (playlist_id, name_key)',
+  );
+  late final Index moviesPlaylistCategory = Index(
+    'movies_playlist_category',
+    'CREATE INDEX movies_playlist_category ON movies (playlist_id, category_id, position)',
+  );
+  late final Index moviesAdded = Index(
+    'movies_added',
+    'CREATE INDEX movies_added ON movies (playlist_id, added_at)',
+  );
+  late final Index moviesNameKey = Index(
+    'movies_name_key',
+    'CREATE INDEX movies_name_key ON movies (playlist_id, name_key)',
+  );
+  late final Index seriesPlaylistCategory = Index(
+    'series_playlist_category',
+    'CREATE INDEX series_playlist_category ON series_items (playlist_id, category_id, position)',
+  );
+  late final Index seriesAdded = Index(
+    'series_added',
+    'CREATE INDEX series_added ON series_items (playlist_id, added_at)',
+  );
+  late final Index seriesNameKey = Index(
+    'series_name_key',
+    'CREATE INDEX series_name_key ON series_items (playlist_id, name_key)',
+  );
+  late final Index episodesSeries = Index(
+    'episodes_series',
+    'CREATE INDEX episodes_series ON episodes (playlist_id, series_id, season, episode_num)',
+  );
   late final Index epgChannelStart = Index(
     'epg_channel_start',
     'CREATE INDEX epg_channel_start ON epg_programs (playlist_id, channel_id, start)',
+  );
+  late final Index epgChannelEnd = Index(
+    'epg_channel_end',
+    'CREATE INDEX epg_channel_end ON epg_programs (playlist_id, channel_id, "end")',
+  );
+  late final Index historyRecent = Index(
+    'history_recent',
+    'CREATE INDEX history_recent ON history (profile_id, playlist_id, kind, watched_at)',
   );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -6429,7 +6920,19 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     groupChannels,
     lockedChannels,
     hiddenCategories,
+    categoriesPlaylistKind,
+    channelsPlaylistCategory,
+    channelsNameKey,
+    moviesPlaylistCategory,
+    moviesAdded,
+    moviesNameKey,
+    seriesPlaylistCategory,
+    seriesAdded,
+    seriesNameKey,
+    episodesSeries,
     epgChannelStart,
+    epgChannelEnd,
+    historyRecent,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -8296,6 +8799,7 @@ typedef $$ChannelsTableCreateCompanionBuilder =
       required String playlistId,
       required String streamId,
       required String name,
+      Value<String> nameKey,
       Value<String?> logo,
       Value<String?> categoryId,
       Value<String?> epgChannelId,
@@ -8311,6 +8815,7 @@ typedef $$ChannelsTableUpdateCompanionBuilder =
       Value<String> playlistId,
       Value<String> streamId,
       Value<String> name,
+      Value<String> nameKey,
       Value<String?> logo,
       Value<String?> categoryId,
       Value<String?> epgChannelId,
@@ -8366,6 +8871,11 @@ class $$ChannelsTableFilterComposer
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get nameKey => $composableBuilder(
+    column: $table.nameKey,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8457,6 +8967,11 @@ class $$ChannelsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get nameKey => $composableBuilder(
+    column: $table.nameKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get logo => $composableBuilder(
     column: $table.logo,
     builder: (column) => ColumnOrderings(column),
@@ -8538,6 +9053,9 @@ class $$ChannelsTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get nameKey =>
+      $composableBuilder(column: $table.nameKey, builder: (column) => column);
 
   GeneratedColumn<String> get logo =>
       $composableBuilder(column: $table.logo, builder: (column) => column);
@@ -8625,6 +9143,7 @@ class $$ChannelsTableTableManager
                 Value<String> playlistId = const Value.absent(),
                 Value<String> streamId = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<String> nameKey = const Value.absent(),
                 Value<String?> logo = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<String?> epgChannelId = const Value.absent(),
@@ -8638,6 +9157,7 @@ class $$ChannelsTableTableManager
                 playlistId: playlistId,
                 streamId: streamId,
                 name: name,
+                nameKey: nameKey,
                 logo: logo,
                 categoryId: categoryId,
                 epgChannelId: epgChannelId,
@@ -8653,6 +9173,7 @@ class $$ChannelsTableTableManager
                 required String playlistId,
                 required String streamId,
                 required String name,
+                Value<String> nameKey = const Value.absent(),
                 Value<String?> logo = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<String?> epgChannelId = const Value.absent(),
@@ -8666,6 +9187,7 @@ class $$ChannelsTableTableManager
                 playlistId: playlistId,
                 streamId: streamId,
                 name: name,
+                nameKey: nameKey,
                 logo: logo,
                 categoryId: categoryId,
                 epgChannelId: epgChannelId,
@@ -8748,6 +9270,7 @@ typedef $$MoviesTableCreateCompanionBuilder =
       required String playlistId,
       required String streamId,
       required String name,
+      Value<String> nameKey,
       Value<String?> poster,
       Value<String?> categoryId,
       Value<String> streamUrl,
@@ -8763,6 +9286,7 @@ typedef $$MoviesTableUpdateCompanionBuilder =
       Value<String> playlistId,
       Value<String> streamId,
       Value<String> name,
+      Value<String> nameKey,
       Value<String?> poster,
       Value<String?> categoryId,
       Value<String> streamUrl,
@@ -8816,6 +9340,11 @@ class $$MoviesTableFilterComposer
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get nameKey => $composableBuilder(
+    column: $table.nameKey,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8907,6 +9436,11 @@ class $$MoviesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get nameKey => $composableBuilder(
+    column: $table.nameKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get poster => $composableBuilder(
     column: $table.poster,
     builder: (column) => ColumnOrderings(column),
@@ -8988,6 +9522,9 @@ class $$MoviesTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get nameKey =>
+      $composableBuilder(column: $table.nameKey, builder: (column) => column);
 
   GeneratedColumn<String> get poster =>
       $composableBuilder(column: $table.poster, builder: (column) => column);
@@ -9073,6 +9610,7 @@ class $$MoviesTableTableManager
                 Value<String> playlistId = const Value.absent(),
                 Value<String> streamId = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<String> nameKey = const Value.absent(),
                 Value<String?> poster = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<String> streamUrl = const Value.absent(),
@@ -9086,6 +9624,7 @@ class $$MoviesTableTableManager
                 playlistId: playlistId,
                 streamId: streamId,
                 name: name,
+                nameKey: nameKey,
                 poster: poster,
                 categoryId: categoryId,
                 streamUrl: streamUrl,
@@ -9101,6 +9640,7 @@ class $$MoviesTableTableManager
                 required String playlistId,
                 required String streamId,
                 required String name,
+                Value<String> nameKey = const Value.absent(),
                 Value<String?> poster = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<String> streamUrl = const Value.absent(),
@@ -9114,6 +9654,7 @@ class $$MoviesTableTableManager
                 playlistId: playlistId,
                 streamId: streamId,
                 name: name,
+                nameKey: nameKey,
                 poster: poster,
                 categoryId: categoryId,
                 streamUrl: streamUrl,
@@ -9194,6 +9735,7 @@ typedef $$SeriesItemsTableCreateCompanionBuilder =
       required String playlistId,
       required String seriesId,
       required String name,
+      Value<String> nameKey,
       Value<String?> cover,
       Value<String?> categoryId,
       Value<String?> plot,
@@ -9208,6 +9750,7 @@ typedef $$SeriesItemsTableUpdateCompanionBuilder =
       Value<String> playlistId,
       Value<String> seriesId,
       Value<String> name,
+      Value<String> nameKey,
       Value<String?> cover,
       Value<String?> categoryId,
       Value<String?> plot,
@@ -9262,6 +9805,11 @@ class $$SeriesItemsTableFilterComposer
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get nameKey => $composableBuilder(
+    column: $table.nameKey,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9348,6 +9896,11 @@ class $$SeriesItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get nameKey => $composableBuilder(
+    column: $table.nameKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get cover => $composableBuilder(
     column: $table.cover,
     builder: (column) => ColumnOrderings(column),
@@ -9424,6 +9977,9 @@ class $$SeriesItemsTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get nameKey =>
+      $composableBuilder(column: $table.nameKey, builder: (column) => column);
 
   GeneratedColumn<String> get cover =>
       $composableBuilder(column: $table.cover, builder: (column) => column);
@@ -9504,6 +10060,7 @@ class $$SeriesItemsTableTableManager
                 Value<String> playlistId = const Value.absent(),
                 Value<String> seriesId = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<String> nameKey = const Value.absent(),
                 Value<String?> cover = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<String?> plot = const Value.absent(),
@@ -9516,6 +10073,7 @@ class $$SeriesItemsTableTableManager
                 playlistId: playlistId,
                 seriesId: seriesId,
                 name: name,
+                nameKey: nameKey,
                 cover: cover,
                 categoryId: categoryId,
                 plot: plot,
@@ -9530,6 +10088,7 @@ class $$SeriesItemsTableTableManager
                 required String playlistId,
                 required String seriesId,
                 required String name,
+                Value<String> nameKey = const Value.absent(),
                 Value<String?> cover = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<String?> plot = const Value.absent(),
@@ -9542,6 +10101,7 @@ class $$SeriesItemsTableTableManager
                 playlistId: playlistId,
                 seriesId: seriesId,
                 name: name,
+                nameKey: nameKey,
                 cover: cover,
                 categoryId: categoryId,
                 plot: plot,
@@ -10447,6 +11007,7 @@ typedef $$FavoritesTableCreateCompanionBuilder =
     FavoritesCompanion Function({
       Value<int> id,
       required String playlistId,
+      Value<String> profileId,
       required ContentKind kind,
       required String itemId,
       Value<DateTime> addedAt,
@@ -10455,6 +11016,7 @@ typedef $$FavoritesTableUpdateCompanionBuilder =
     FavoritesCompanion Function({
       Value<int> id,
       Value<String> playlistId,
+      Value<String> profileId,
       Value<ContentKind> kind,
       Value<String> itemId,
       Value<DateTime> addedAt,
@@ -10495,6 +11057,11 @@ class $$FavoritesTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get profileId => $composableBuilder(
+    column: $table.profileId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10552,6 +11119,11 @@ class $$FavoritesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get kind => $composableBuilder(
     column: $table.kind,
     builder: (column) => ColumnOrderings(column),
@@ -10602,6 +11174,9 @@ class $$FavoritesTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
 
   GeneratedColumnWithTypeConverter<ContentKind, String> get kind =>
       $composableBuilder(column: $table.kind, builder: (column) => column);
@@ -10666,12 +11241,14 @@ class $$FavoritesTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<String> playlistId = const Value.absent(),
+                Value<String> profileId = const Value.absent(),
                 Value<ContentKind> kind = const Value.absent(),
                 Value<String> itemId = const Value.absent(),
                 Value<DateTime> addedAt = const Value.absent(),
               }) => FavoritesCompanion(
                 id: id,
                 playlistId: playlistId,
+                profileId: profileId,
                 kind: kind,
                 itemId: itemId,
                 addedAt: addedAt,
@@ -10680,12 +11257,14 @@ class $$FavoritesTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required String playlistId,
+                Value<String> profileId = const Value.absent(),
                 required ContentKind kind,
                 required String itemId,
                 Value<DateTime> addedAt = const Value.absent(),
               }) => FavoritesCompanion.insert(
                 id: id,
                 playlistId: playlistId,
+                profileId: profileId,
                 kind: kind,
                 itemId: itemId,
                 addedAt: addedAt,
@@ -10761,23 +11340,27 @@ typedef $$HistoryTableCreateCompanionBuilder =
     HistoryCompanion Function({
       Value<int> id,
       required String playlistId,
+      Value<String> profileId,
       required ContentKind kind,
       required String itemId,
       Value<String?> parentId,
       Value<int> positionMs,
       Value<int> durationMs,
       Value<DateTime> watchedAt,
+      Value<DateTime?> syncedAt,
     });
 typedef $$HistoryTableUpdateCompanionBuilder =
     HistoryCompanion Function({
       Value<int> id,
       Value<String> playlistId,
+      Value<String> profileId,
       Value<ContentKind> kind,
       Value<String> itemId,
       Value<String?> parentId,
       Value<int> positionMs,
       Value<int> durationMs,
       Value<DateTime> watchedAt,
+      Value<DateTime?> syncedAt,
     });
 
 final class $$HistoryTableReferences
@@ -10818,6 +11401,11 @@ class $$HistoryTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnWithTypeConverterFilters<ContentKind, ContentKind, String> get kind =>
       $composableBuilder(
         column: $table.kind,
@@ -10846,6 +11434,11 @@ class $$HistoryTableFilterComposer
 
   ColumnFilters<DateTime> get watchedAt => $composableBuilder(
     column: $table.watchedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get syncedAt => $composableBuilder(
+    column: $table.syncedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10887,6 +11480,11 @@ class $$HistoryTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get kind => $composableBuilder(
     column: $table.kind,
     builder: (column) => ColumnOrderings(column),
@@ -10914,6 +11512,11 @@ class $$HistoryTableOrderingComposer
 
   ColumnOrderings<DateTime> get watchedAt => $composableBuilder(
     column: $table.watchedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get syncedAt => $composableBuilder(
+    column: $table.syncedAt,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -10953,6 +11556,9 @@ class $$HistoryTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<String> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
+
   GeneratedColumnWithTypeConverter<ContentKind, String> get kind =>
       $composableBuilder(column: $table.kind, builder: (column) => column);
 
@@ -10974,6 +11580,9 @@ class $$HistoryTableAnnotationComposer
 
   GeneratedColumn<DateTime> get watchedAt =>
       $composableBuilder(column: $table.watchedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get syncedAt =>
+      $composableBuilder(column: $table.syncedAt, builder: (column) => column);
 
   $$PlaylistsTableAnnotationComposer get playlistId {
     final $$PlaylistsTableAnnotationComposer composer = $composerBuilder(
@@ -11029,41 +11638,49 @@ class $$HistoryTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<String> playlistId = const Value.absent(),
+                Value<String> profileId = const Value.absent(),
                 Value<ContentKind> kind = const Value.absent(),
                 Value<String> itemId = const Value.absent(),
                 Value<String?> parentId = const Value.absent(),
                 Value<int> positionMs = const Value.absent(),
                 Value<int> durationMs = const Value.absent(),
                 Value<DateTime> watchedAt = const Value.absent(),
+                Value<DateTime?> syncedAt = const Value.absent(),
               }) => HistoryCompanion(
                 id: id,
                 playlistId: playlistId,
+                profileId: profileId,
                 kind: kind,
                 itemId: itemId,
                 parentId: parentId,
                 positionMs: positionMs,
                 durationMs: durationMs,
                 watchedAt: watchedAt,
+                syncedAt: syncedAt,
               ),
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
                 required String playlistId,
+                Value<String> profileId = const Value.absent(),
                 required ContentKind kind,
                 required String itemId,
                 Value<String?> parentId = const Value.absent(),
                 Value<int> positionMs = const Value.absent(),
                 Value<int> durationMs = const Value.absent(),
                 Value<DateTime> watchedAt = const Value.absent(),
+                Value<DateTime?> syncedAt = const Value.absent(),
               }) => HistoryCompanion.insert(
                 id: id,
                 playlistId: playlistId,
+                profileId: profileId,
                 kind: kind,
                 itemId: itemId,
                 parentId: parentId,
                 positionMs: positionMs,
                 durationMs: durationMs,
                 watchedAt: watchedAt,
+                syncedAt: syncedAt,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -11136,12 +11753,14 @@ typedef $$ChannelGroupsTableCreateCompanionBuilder =
     ChannelGroupsCompanion Function({
       Value<int> id,
       required String playlistId,
+      Value<String> profileId,
       required String name,
     });
 typedef $$ChannelGroupsTableUpdateCompanionBuilder =
     ChannelGroupsCompanion Function({
       Value<int> id,
       Value<String> playlistId,
+      Value<String> profileId,
       Value<String> name,
     });
 
@@ -11205,6 +11824,11 @@ class $$ChannelGroupsTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get profileId => $composableBuilder(
+    column: $table.profileId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11276,6 +11900,11 @@ class $$ChannelGroupsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get name => $composableBuilder(
     column: $table.name,
     builder: (column) => ColumnOrderings(column),
@@ -11316,6 +11945,9 @@ class $$ChannelGroupsTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
@@ -11399,20 +12031,24 @@ class $$ChannelGroupsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<String> playlistId = const Value.absent(),
+                Value<String> profileId = const Value.absent(),
                 Value<String> name = const Value.absent(),
               }) => ChannelGroupsCompanion(
                 id: id,
                 playlistId: playlistId,
+                profileId: profileId,
                 name: name,
               ),
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
                 required String playlistId,
+                Value<String> profileId = const Value.absent(),
                 required String name,
               }) => ChannelGroupsCompanion.insert(
                 id: id,
                 playlistId: playlistId,
+                profileId: profileId,
                 name: name,
               ),
           withReferenceMapper: (p0) => p0
@@ -11797,12 +12433,14 @@ typedef $$GroupChannelsTableProcessedTableManager =
 typedef $$LockedChannelsTableCreateCompanionBuilder =
     LockedChannelsCompanion Function({
       required String playlistId,
+      Value<String> profileId,
       required String streamId,
       Value<int> rowid,
     });
 typedef $$LockedChannelsTableUpdateCompanionBuilder =
     LockedChannelsCompanion Function({
       Value<String> playlistId,
+      Value<String> profileId,
       Value<String> streamId,
       Value<int> rowid,
     });
@@ -11844,6 +12482,11 @@ class $$LockedChannelsTableFilterComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnFilters<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get streamId => $composableBuilder(
     column: $table.streamId,
     builder: (column) => ColumnFilters(column),
@@ -11882,6 +12525,11 @@ class $$LockedChannelsTableOrderingComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnOrderings<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get streamId => $composableBuilder(
     column: $table.streamId,
     builder: (column) => ColumnOrderings(column),
@@ -11920,6 +12568,9 @@ class $$LockedChannelsTableAnnotationComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  GeneratedColumn<String> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
+
   GeneratedColumn<String> get streamId =>
       $composableBuilder(column: $table.streamId, builder: (column) => column);
 
@@ -11978,20 +12629,24 @@ class $$LockedChannelsTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> playlistId = const Value.absent(),
+                Value<String> profileId = const Value.absent(),
                 Value<String> streamId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LockedChannelsCompanion(
                 playlistId: playlistId,
+                profileId: profileId,
                 streamId: streamId,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String playlistId,
+                Value<String> profileId = const Value.absent(),
                 required String streamId,
                 Value<int> rowid = const Value.absent(),
               }) => LockedChannelsCompanion.insert(
                 playlistId: playlistId,
+                profileId: profileId,
                 streamId: streamId,
                 rowid: rowid,
               ),
@@ -12066,6 +12721,7 @@ typedef $$LockedChannelsTableProcessedTableManager =
 typedef $$HiddenCategoriesTableCreateCompanionBuilder =
     HiddenCategoriesCompanion Function({
       required String playlistId,
+      Value<String> profileId,
       required ContentKind kind,
       required String categoryId,
       Value<int> rowid,
@@ -12073,6 +12729,7 @@ typedef $$HiddenCategoriesTableCreateCompanionBuilder =
 typedef $$HiddenCategoriesTableUpdateCompanionBuilder =
     HiddenCategoriesCompanion Function({
       Value<String> playlistId,
+      Value<String> profileId,
       Value<ContentKind> kind,
       Value<String> categoryId,
       Value<int> rowid,
@@ -12116,6 +12773,11 @@ class $$HiddenCategoriesTableFilterComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnFilters<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnWithTypeConverterFilters<ContentKind, ContentKind, String> get kind =>
       $composableBuilder(
         column: $table.kind,
@@ -12160,6 +12822,11 @@ class $$HiddenCategoriesTableOrderingComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnOrderings<String> get profileId => $composableBuilder(
+    column: $table.profileId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get kind => $composableBuilder(
     column: $table.kind,
     builder: (column) => ColumnOrderings(column),
@@ -12203,6 +12870,9 @@ class $$HiddenCategoriesTableAnnotationComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  GeneratedColumn<String> get profileId =>
+      $composableBuilder(column: $table.profileId, builder: (column) => column);
+
   GeneratedColumnWithTypeConverter<ContentKind, String> get kind =>
       $composableBuilder(column: $table.kind, builder: (column) => column);
 
@@ -12266,11 +12936,13 @@ class $$HiddenCategoriesTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> playlistId = const Value.absent(),
+                Value<String> profileId = const Value.absent(),
                 Value<ContentKind> kind = const Value.absent(),
                 Value<String> categoryId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => HiddenCategoriesCompanion(
                 playlistId: playlistId,
+                profileId: profileId,
                 kind: kind,
                 categoryId: categoryId,
                 rowid: rowid,
@@ -12278,11 +12950,13 @@ class $$HiddenCategoriesTableTableManager
           createCompanionCallback:
               ({
                 required String playlistId,
+                Value<String> profileId = const Value.absent(),
                 required ContentKind kind,
                 required String categoryId,
                 Value<int> rowid = const Value.absent(),
               }) => HiddenCategoriesCompanion.insert(
                 playlistId: playlistId,
+                profileId: profileId,
                 kind: kind,
                 categoryId: categoryId,
                 rowid: rowid,

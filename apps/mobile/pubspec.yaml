@@ -23,8 +23,6 @@ dependencies:
   # Local DB
   drift: ^2.28.0
   drift_flutter: ^0.2.4
-  path_provider: ^2.1.5
-  path: ^1.9.0
 
   # Player
   media_kit: ^1.2.0
@@ -45,8 +43,6 @@ dependencies:
   file_picker: ^10.0.0
   url_launcher: ^6.3.1
   xml: ^6.5.0
-  archive: ^4.0.4
-  collection: ^1.19.0
 
 dev_dependencies:
   flutter_test:

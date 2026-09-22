@@ -78,7 +78,7 @@ class GroupsScreen extends ConsumerWidget {
 
   Future<void> _editChannels(BuildContext context, WidgetRef ref, String playlistId, ChannelGroup g) async {
     final db = ref.read(databaseProvider);
-    final all = await ref.read(channelsProvider(ContentQuery(playlistId, ContentKind.live, SpecialCategory.all)).future);
+    final all = await ref.read(allChannelsProvider(playlistId).future);
     final current = (await db.getGroupChannels(playlistId, g.id)).map((c) => c.streamId).toSet();
     if (!context.mounted) return;
     final selected = Set<String>.of(current);

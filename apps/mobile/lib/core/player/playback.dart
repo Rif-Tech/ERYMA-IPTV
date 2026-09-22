@@ -33,12 +33,23 @@ class PlayableItem {
 
 @immutable
 class PlaybackRequest {
-  const PlaybackRequest({required this.items, this.startIndex = 0, this.startPositionMs});
+  const PlaybackRequest({required this.items, this.startIndex = 0, this.startPositionMs, this.forceCompat = false});
   final List<PlayableItem> items;
   final int startIndex;
   final int? startPositionMs;
 
+  /// Use mpv's GPU renderer with software fallback even where direct decoding is the default
+  /// (set when the hardware decoder refused the stream).
+  final bool forceCompat;
+
   PlayableItem get current => items[startIndex];
+
+  PlaybackRequest copyWith({int? startIndex, int? startPositionMs, bool? forceCompat}) => PlaybackRequest(
+        items: items,
+        startIndex: startIndex ?? this.startIndex,
+        startPositionMs: startPositionMs ?? this.startPositionMs,
+        forceCompat: forceCompat ?? this.forceCompat,
+      );
 }
 
 /// Builds playable URLs from database rows for either playlist type.

@@ -1,20 +1,26 @@
-// Device-facing playlist API (authenticated by MAC + device key).
-//   GET    /device-playlists?mac=&key=          → { status, playlists }
+// Device-facing playlist API.
+//   Legacy (MAC + device key): full CRUD on the device's own playlists.
+//   Paired install (x-device-id / x-device-secret): read-only view of the account's playlists;
+//   playlists are managed from the portal (or added through a playlist pairing code).
+//   GET    /device-playlists                          → { status, playlists }
 //   POST   /device-playlists { mac, key, ...playlist } → { playlist }
 //   PUT    /device-playlists { mac, key, id, ...fields } → { playlist }
-//   DELETE /device-playlists { mac, key, id }   → { ok }
+//   DELETE /device-playlists { mac, key, id }         → { ok }
 
-import { authenticateDevice, computeStatus } from "../_shared/device.ts";
+import { authenticateAny, computeAccountStatus, computeStatus } from "../_shared/device.ts";
 import { adminClient, HttpError, json, readJson, requireString, serve } from "../_shared/http.ts";
-import { createPlaylist, deletePlaylist, listPlaylists, updatePlaylist, validatePlaylistInput } from "../_shared/playlists.ts";
+import { createPlaylist, deletePlaylist, listAccountPlaylists, listPlaylists, updatePlaylist, validatePlaylistInput } from "../_shared/playlists.ts";
 
 serve(async (req) => {
   const db = adminClient();
 
   if (req.method === "GET") {
-    const url = new URL(req.url);
-    const device = await authenticateDevice(db, url.searchParams.get("mac"), url.searchParams.get("key"));
+    const { device, legacy } = await authenticateAny(db, req);
     await db.from("devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
+    if (!legacy) {
+      const account = await computeAccountStatus(db, device.account_id!);
+      return json({ status: account, playlists: account.expired ? [] : await listAccountPlaylists(db, device.account_id!) });
+    }
     const status = await computeStatus(db, device);
     // Credentials are returned only to the authenticated device (HTTPS in production).
     const playlists = status.expired ? [] : await listPlaylists(db, device.id);
@@ -22,7 +28,8 @@ serve(async (req) => {
   }
 
   const body = await readJson(req);
-  const device = await authenticateDevice(db, body.mac, body.key ?? body.device_key);
+  const { device, legacy } = await authenticateAny(db, req, body);
+  if (!legacy) throw new HttpError(403, "Playlists are managed from the portal");
 
   if (req.method === "POST") {
     const input = validatePlaylistInput(body);

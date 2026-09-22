@@ -1,9 +1,9 @@
-// GET /featured?mac=&key=&mode=curated|popular|tmdb&lang=fr-FR
+// GET /featured?mode=curated|popular|tmdb&lang=fr-FR  (auth: install headers or legacy mac/key)
 // Returns the hero entries for the requested source in one uniform shape. Matching against the
 // device's playlists happens on the device (the server never sees playlist contents).
 
 import { adminClient, HttpError, json, serve } from "../_shared/http.ts";
-import { authenticateDevice } from "../_shared/device.ts";
+import { authenticateAny } from "../_shared/device.ts";
 import { details, parseLang, trending, type TmdbSummary } from "../_shared/tmdb.ts";
 
 interface FeaturedEntry {
@@ -51,7 +51,7 @@ serve(async (req) => {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed");
   const db = adminClient();
   const url = new URL(req.url);
-  await authenticateDevice(db, url.searchParams.get("mac"), url.searchParams.get("key"));
+  await authenticateAny(db, req);
   const mode = url.searchParams.get("mode") ?? "curated";
   const lang = parseLang(url.searchParams.get("lang"));
 

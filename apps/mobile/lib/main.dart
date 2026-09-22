@@ -16,6 +16,11 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   final isTv = await isAndroidTelevision();
   final isEmulator = await isAndroidEmulator();
+  final lowEnd = isTv || await isLowEndDevice();
+
+  // Decoded artwork is the main heap consumer; 2 GB boxes cannot afford Flutter's 100 MB default.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = (lowEnd ? 40 : 80) << 20;
+  PaintingBinding.instance.imageCache.maximumSize = lowEnd ? 300 : 600;
 
   if (isTv) {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -29,6 +34,7 @@ Future<void> main() async {
         sharedPreferencesProvider.overrideWithValue(prefs),
         isTelevisionProvider.overrideWithValue(isTv),
         isEmulatorProvider.overrideWithValue(isEmulator),
+        isLowEndDeviceProvider.overrideWithValue(lowEnd),
       ],
       child: const MultIptvApp(),
     ),

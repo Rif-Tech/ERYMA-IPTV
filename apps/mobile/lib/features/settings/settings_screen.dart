@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/images/artwork_cache.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/pin_dialog.dart';
-import '../playlists/device_info_card.dart';
 import '../playlists/playlists_provider.dart';
+import 'account_card.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -39,14 +40,26 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 Text(l10n.settings, style: Theme.of(context).textTheme.headlineMedium),
                 const SizedBox(height: 20),
-                const DeviceInfoCard(showQr: false),
+                const AccountCard(),
                 const SizedBox(height: 16),
         _Section(l10n.myPlaylists, [
+          if (ref.watch(profilesProvider).length > 1)
+            ListTile(
+              leading: const Icon(Icons.switch_account_rounded),
+              title: Text(l10n.switchProfile),
+              subtitle: ref.watch(activeProfileProvider) != null ? Text(ref.watch(activeProfileProvider)!.name) : null,
+              onTap: () => context.push(Routes.profiles),
+            ),
           ListTile(
             leading: const Icon(Icons.playlist_play),
             title: Text(l10n.changePlaylist),
             subtitle: playlist != null ? Text(playlist.name) : null,
             onTap: () => context.push(Routes.playlists),
+          ),
+          ListTile(
+            leading: const Icon(Icons.playlist_add_rounded),
+            title: Text(l10n.addPlaylistTitle),
+            onTap: () => context.push(Routes.noPlaylist),
           ),
           if (playlist != null)
             ListTile(
@@ -165,17 +178,39 @@ class SettingsScreen extends ConsumerWidget {
             },
             onChanged: n.setVideoFit,
           ),
-          ListTile(
-            leading: const Icon(Icons.format_size),
-            title: Text(l10n.subtitleSize),
-            subtitle: Slider(
-              value: s.subtitleScale,
-              min: 0.6,
-              max: 2.0,
-              divisions: 14,
-              label: '${(s.subtitleScale * 100).round()} %',
-              onChanged: n.setSubtitleScale,
-            ),
+          _EnumTile<VideoDecoder>(
+            icon: Icons.memory,
+            title: l10n.videoDecoder,
+            value: s.videoDecoder,
+            values: VideoDecoder.values,
+            label: (v) => switch (v) {
+              VideoDecoder.auto => l10n.decoderAuto,
+              VideoDecoder.direct => l10n.decoderDirect,
+              VideoDecoder.compat => l10n.decoderCompat,
+            },
+            onChanged: n.setVideoDecoder,
+          ),
+          _EnumTile<PerformanceMode>(
+            icon: Icons.speed_rounded,
+            title: l10n.performanceMode,
+            value: s.performanceMode,
+            values: PerformanceMode.values,
+            label: (v) => switch (v) {
+              PerformanceMode.auto => l10n.performanceAuto,
+              PerformanceMode.on => l10n.performanceOn,
+              PerformanceMode.off => l10n.performanceOff,
+            },
+            onChanged: n.setPerformanceMode,
+          ),
+          _SliderTile(
+            icon: Icons.format_size,
+            title: l10n.subtitleSize,
+            value: s.subtitleScale,
+            min: 0.6,
+            max: 2.0,
+            divisions: 14,
+            label: '${(s.subtitleScale * 100).round()} %',
+            onChanged: n.setSubtitleScale,
           ),
           ListTile(
             leading: const Icon(Icons.color_lens_outlined),
@@ -212,7 +247,8 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.cleaning_services_outlined),
             title: Text(l10n.clearCache),
             onTap: () async {
-              await DefaultCacheManager().emptyCache();
+              await ArtworkCache.instance.emptyCache();
+              PaintingBinding.instance.imageCache.clear();
               if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.cleared)));
             },
           ),
@@ -271,6 +307,84 @@ class _Section extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Slider row for the D-pad: left/right adjust the value, up/down keep moving through the list.
+///
+/// Flutter's [Slider] binds all four arrows to value changes, which traps the focus on TV.
+class _SliderTile extends StatefulWidget {
+  const _SliderTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.label,
+    required this.onChanged,
+  });
+  final IconData icon;
+  final String title;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final String label;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_SliderTile> createState() => _SliderTileState();
+}
+
+class _SliderTileState extends State<_SliderTile> {
+  late final FocusNode _node = FocusNode(debugLabel: 'slider-tile', onKeyEvent: _onKey);
+
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(_onFocus);
+  }
+
+  @override
+  void dispose() {
+    _node.removeListener(_onFocus);
+    _node.dispose();
+    super.dispose();
+  }
+
+  void _onFocus() => setState(() {});
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
+      // Runs before the slider's own shortcuts: hand the key back to focus traversal.
+      final moved = node.focusInDirection(key == LogicalKeyboardKey.arrowUp ? TraversalDirection.up : TraversalDirection.down);
+      return moved ? KeyEventResult.handled : KeyEventResult.ignored;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: Icon(widget.icon),
+      title: Text(widget.title),
+      trailing: Text(widget.label, style: Theme.of(context).textTheme.labelLarge),
+      selected: _node.hasFocus,
+      selectedTileColor: scheme.primary.withValues(alpha: 0.12),
+      subtitle: Slider(
+        value: widget.value,
+        min: widget.min,
+        max: widget.max,
+        divisions: widget.divisions,
+        label: widget.label,
+        focusNode: _node,
+        onChanged: widget.onChanged,
       ),
     );
   }

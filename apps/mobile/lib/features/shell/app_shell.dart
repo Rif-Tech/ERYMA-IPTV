@@ -82,7 +82,6 @@ class _TvFocusBridge extends ConsumerWidget {
     final bar = ref.watch(sidebarFocusProvider);
     final body = ref.watch(bodyScopeProvider);
     final barScope = ref.watch(_barScopeProvider);
-    final scroll = PrimaryScrollController.maybeOf(context);
     return Focus(
       canRequestFocus: false,
       skipTraversal: true,
@@ -111,9 +110,12 @@ class _TvFocusBridge extends ConsumerWidget {
         if (event.logicalKey == LogicalKeyboardKey.arrowUp && body.hasFocus) {
           if (canMove && current.focusInDirection(TraversalDirection.up) && body.hasFocus) return KeyEventResult.handled;
           ref.read(_barVisibleProvider.notifier).set(true);
-          // Like the Apple TV app, reaching the tabs brings the page back to its top.
-          if (scroll != null && scroll.hasClients && scroll.offset > 0) {
-            scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
+          // Like the Apple TV app, reaching the tabs brings the page back to its top. Android lists
+          // do not attach to the PrimaryScrollController, so scroll the list holding the focused item.
+          final ctx = current.context;
+          final position = ctx == null ? null : Scrollable.maybeOf(ctx, axis: Axis.vertical)?.position;
+          if (position != null && position.pixels > 0) {
+            position.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOutCubic);
           }
           if (bar.context != null) bar.requestFocus();
           return KeyEventResult.handled;
@@ -132,19 +134,16 @@ class _TvFocusBridge extends ConsumerWidget {
 
 /// Responsive navigation chrome: bottom bar (phone) or an Apple TV-style top tab bar (tablet/TV).
 class AppShell extends ConsumerStatefulWidget {
-  const AppShell({super.key, required this.location, required this.child});
+  const AppShell({super.key, required this.location, required this.shell});
   final String location;
-  final Widget child;
+  final StatefulNavigationShell shell;
 
   @override
   ConsumerState<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  int get _index {
-    final i = _destinations.indexWhere((d) => widget.location == d.route || widget.location.startsWith('${d.route}/'));
-    return i < 0 ? 0 : i;
-  }
+  int get _index => widget.shell.currentIndex;
 
   // A new page starts scrolled to the top, so the bar must come back even without a scroll event.
   @override
@@ -164,14 +163,41 @@ class _AppShellState extends ConsumerState<AppShell> {
     final form = formFactorOf(context, isTv: isTv);
     final index = _index;
 
-    void go(int i) => context.go(_destinations[i].route);
+    void go(int i) => widget.shell.goBranch(i, initialLocation: i == _index);
 
-    final body = Shortcuts(
-      shortcuts: const {
-        SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
-        SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+    // Nested routes (details) pop on their own; this only runs when a root tab is showing.
+    Future<void> onBack() async {
+      if (widget.location != _destinations[_index].route) return;
+      if (_index != 0) {
+        go(0);
+        return;
+      }
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(l10n.exit),
+          content: Text(l10n.exitDescription),
+          actions: [
+            TextButton(autofocus: true, onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.exit)),
+          ],
+        ),
+      );
+      if (leave == true) await SystemNavigator.pop();
+    }
+
+    final body = PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) onBack();
       },
-      child: widget.child,
+      child: Shortcuts(
+        shortcuts: const {
+          SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+        },
+        child: widget.shell,
+      ),
     );
 
     if (form.isMobile) {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -485,24 +486,18 @@ class XtreamClient {
     return account;
   }
 
-  Future<List<XtreamCategory>> liveCategories() =>
-      _getList('get_live_categories').then((l) => l.map(XtreamCategory.fromJson).toList());
-  Future<List<XtreamCategory>> vodCategories() =>
-      _getList('get_vod_categories').then((l) => l.map(XtreamCategory.fromJson).toList());
-  Future<List<XtreamCategory>> seriesCategories() =>
-      _getList('get_series_categories').then((l) => l.map(XtreamCategory.fromJson).toList());
+  Future<List<XtreamCategory>> liveCategories() => _getListMapped('get_live_categories', XtreamCategory.fromJson);
+  Future<List<XtreamCategory>> vodCategories() => _getListMapped('get_vod_categories', XtreamCategory.fromJson);
+  Future<List<XtreamCategory>> seriesCategories() => _getListMapped('get_series_categories', XtreamCategory.fromJson);
 
-  Future<List<XtreamLiveStream>> liveStreams({String? categoryId}) => _getList('get_live_streams',
-          categoryId == null ? const {} : {'category_id': categoryId})
-      .then((l) => l.map(XtreamLiveStream.fromJson).toList());
+  Future<List<XtreamLiveStream>> liveStreams({String? categoryId}) =>
+      _getListMapped('get_live_streams', XtreamLiveStream.fromJson, categoryId == null ? const {} : {'category_id': categoryId});
 
-  Future<List<XtreamVodStream>> vodStreams({String? categoryId}) => _getList('get_vod_streams',
-          categoryId == null ? const {} : {'category_id': categoryId})
-      .then((l) => l.map(XtreamVodStream.fromJson).toList());
+  Future<List<XtreamVodStream>> vodStreams({String? categoryId}) =>
+      _getListMapped('get_vod_streams', XtreamVodStream.fromJson, categoryId == null ? const {} : {'category_id': categoryId});
 
   Future<List<XtreamSeries>> series({String? categoryId}) =>
-      _getList('get_series', categoryId == null ? const {} : {'category_id': categoryId})
-          .then((l) => l.map(XtreamSeries.fromJson).toList());
+      _getListMapped('get_series', XtreamSeries.fromJson, categoryId == null ? const {} : {'category_id': categoryId});
 
   Future<XtreamVodInfo> vodInfo(String vodId) =>
       _getMap(credentials.playerApi('get_vod_info', {'vod_id': vodId})).then(XtreamVodInfo.fromJson);
@@ -533,14 +528,31 @@ class XtreamClient {
     throw const XtreamException('Unexpected response');
   }
 
-  Future<List<Map<String, dynamic>>> _getList(String action, [Map<String, String> params = const {}]) async {
-    final data = await _get(credentials.playerApi(action, params));
-    if (data is List) return data.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
-    // Some panels answer `{}` or an auth object when the account is invalid.
-    if (data is Map && data.containsKey('user_info')) {
-      throw const XtreamException('Authentication failed', isAuthError: true);
+  /// Catalogue endpoints return megabytes of JSON: decode and map them off the UI isolate so the
+  /// import screen keeps animating. Small answers are handled inline (spawning costs more).
+  Future<List<T>> _getListMapped<T>(String action, T Function(Map<String, dynamic>) fromJson, [Map<String, String> params = const {}]) async {
+    final String text;
+    try {
+      final res = await _dio.get<String>(credentials.playerApi(action, params), options: Options(responseType: ResponseType.plain));
+      text = res.data ?? '';
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403) throw const XtreamException('Access denied', isAuthError: true);
+      throw XtreamException(e.message ?? 'Network error');
     }
-    return const [];
+    if (text.trim().isEmpty) return const [];
+    List<T> decode() {
+      final dynamic data;
+      try {
+        data = jsonDecode(text);
+      } catch (_) {
+        throw const XtreamException('Server returned a non-JSON response');
+      }
+      if (data is List) return [for (final e in data) if (e is Map) fromJson(e.cast<String, dynamic>())];
+      if (data is Map && data.containsKey('user_info')) throw const XtreamException('Authentication failed', isAuthError: true);
+      return const [];
+    }
+    return text.length < 256 * 1024 ? decode() : Isolate.run(decode);
   }
 
   Future<dynamic> _get(String url) async {

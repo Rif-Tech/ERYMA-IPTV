@@ -94,7 +94,7 @@ class _LockedChannels extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final locked = ref.watch(lockedChannelsProvider(playlistId)).value ?? const {};
-    final channels = ref.watch(channelsProvider(ContentQuery(playlistId, ContentKind.live, SpecialCategory.all))).value ?? const [];
+    final channels = ref.watch(allChannelsProvider(playlistId)).value ?? const [];
     final lockedChannels = channels.where((c) => locked.contains(c.streamId)).toList();
     return ExpansionTile(
       leading: const Icon(Icons.lock_outline),

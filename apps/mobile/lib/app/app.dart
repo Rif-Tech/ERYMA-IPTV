@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/settings/settings.dart';
+import '../features/splash/session_gate.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'responsive.dart';
 import 'router.dart';
@@ -22,6 +23,7 @@ class MultIptvApp extends ConsumerWidget {
       title: 'MultIPTV',
       debugShowCheckedModeBanner: false,
       routerConfig: router,
+      builder: (_, child) => SessionGate(child: child ?? const SizedBox.shrink()),
       theme: theme,
       darkTheme: theme,
       themeMode: ThemeMode.dark,

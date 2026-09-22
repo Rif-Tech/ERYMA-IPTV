@@ -9,10 +9,12 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../app/responsive.dart';
+import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/player/playback.dart';
 import '../../core/settings/settings.dart';
+import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
@@ -40,8 +42,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _overlay = true;
   bool _showList = false;
   String? _error;
-  bool _buffering = true;
-  bool _playing = false;
   Tracks _tracks = const Tracks();
   Track _track = const Track();
   double _rate = 1.0;
@@ -51,9 +51,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Timer? _saveTimer;
   int? _pendingStartMs;
 
-  // High-frequency values live in notifiers so only the progress bar repaints.
+  // High-frequency values live in notifiers so only the widgets showing them repaint. Buffering
+  // flips many times a minute on a weak network; a setState there rebuilt the whole overlay.
   final _position = ValueNotifier(Duration.zero);
   final _duration = ValueNotifier(Duration.zero);
+  final _buffering = ValueNotifier(true);
+  final _playing = ValueNotifier(false);
 
   /// Accumulated, not yet committed seek offset (D-pad taps / long press).
   final _pendingSeek = ValueNotifier<Duration?>(null);
@@ -79,17 +82,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _player = Player(
       configuration: PlayerConfiguration(
         title: 'MultIPTV',
-        bufferSize: 32 * 1024 * 1024,
+        // Demuxer RAM cache; 32 MB is a noticeable slice of a 2 GB box shared with the OS.
+        bufferSize: (ref.read(isLowEndDeviceProvider) ? 16 : 32) * 1024 * 1024,
         logLevel: kDebugMode ? MPVLogLevel.warn : MPVLogLevel.error,
       ),
     );
-    // Emulators cannot create mpv's EGL context (vo=gpu): decode straight into the surface instead.
+    // Direct-to-surface decoding: no per-frame GPU↔CPU copy, which low-end TV boxes cannot
+    // sustain. Emulators also need it because they cannot create mpv's EGL context (vo=gpu).
+    // Boxes whose MediaCodec refused a stream once are remembered: auto then starts in compat.
+    final prefs = ref.read(sharedPreferencesProvider);
+    final direct = switch (ref.read(settingsProvider).videoDecoder) {
+      VideoDecoder.direct => true,
+      VideoDecoder.compat => false,
+      VideoDecoder.auto => _isTv && !(prefs.getBool(_directUnsupportedKey) ?? false),
+    };
+    _direct = !widget.request.forceCompat && (direct || ref.read(isEmulatorProvider));
     _controller = VideoController(
       _player,
-      configuration: ref.read(isEmulatorProvider)
+      configuration: _direct
           ? const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec')
           : const VideoControllerConfiguration(),
     );
+    _tunePlayer();
 
     void safeSet(VoidCallback fn) {
       if (mounted) setState(fn);
@@ -97,9 +111,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
     _subs.addAll([
       if (kDebugMode) _player.stream.log.listen((l) => debugPrint('mpv[${l.level}] ${l.prefix}: ${l.text}')),
-      _player.stream.error.listen((e) => safeSet(() => _error = e)),
-      _player.stream.buffering.listen((b) => safeSet(() => _buffering = b)),
-      _player.stream.playing.listen((p) => safeSet(() => _playing = p)),
+      _player.stream.error.listen((e) {
+        if (_isBenignError(e)) return;
+        if (_direct && _isDecoderError(e)) {
+          _fallbackToCompat();
+          return;
+        }
+        safeSet(() => _error = e);
+      }),
+      _player.stream.buffering.listen((b) => _buffering.value = b),
+      _player.stream.playing.listen((p) => _playing.value = p),
       // While a seek is pending, keep showing the target instead of the stale playback position.
       _player.stream.position.listen((p) {
         if (_pendingSeek.value == null) _position.value = p;
@@ -129,13 +150,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _hideTimer?.cancel();
     _saveTimer?.cancel();
     _seekCommitTimer?.cancel();
-    _saveProgress();
+    _saveProgress(flush: true);
     for (final s in _subs) {
       s.cancel();
     }
     _player.dispose();
     _position.dispose();
     _duration.dispose();
+    _buffering.dispose();
+    _playing.dispose();
     _pendingSeek.dispose();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     if (!_isTv) {
@@ -148,38 +171,108 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       _error = null;
-      _buffering = true;
       _videoWidth = null;
       _videoHeight = null;
     });
+    _buffering.value = true;
     _pendingSeek.value = null;
     final start = _pendingStartMs;
     _pendingStartMs = null;
+    await _tuned;
     await _player.open(
       Media(_item.url, httpHeaders: const {'User-Agent': 'MultIPTV/1.0'}, start: start == null ? null : Duration(milliseconds: start)),
     );
     if (_isLive) _saveProgress();
   }
 
-  Future<void> _saveProgress() async {
+  late final Future<void> _tuned;
+
+  static const _directUnsupportedKey = 'directDecodeUnsupported';
+  late final bool _direct;
+  bool _fellBack = false;
+
+  /// mpv reports the decoder re-init done by `vo=mediacodec_embed` as a failed seek on live
+  /// (unseekable) streams; playback is unaffected, so it must not raise the error banner.
+  static bool _isBenignError(String e) => e.contains('Cannot seek in this stream') || e.contains('force-seekable');
+
+  /// `vo=mediacodec_embed` can only show frames MediaCodec decoded: when the hardware codec
+  /// rejects the stream (unsupported profile, 10-bit, old firmware) audio plays without picture.
+  static bool _isDecoderError(String e) {
+    final s = e.toLowerCase();
+    return s.contains('could not open codec') || s.contains('hardware decod') || s.contains('video chain') || s.contains('mediacodec');
+  }
+
+  /// Restarts this screen with mpv's GPU renderer + software fallback at the current position, and
+  /// remembers that this box cannot use the direct path so the next playback skips the detour.
+  Future<void> _fallbackToCompat() async {
+    if (_fellBack || !mounted || ref.read(isEmulatorProvider)) return;
+    _fellBack = true;
+    debugPrint('direct decode failed, restarting player in compat mode');
+    if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto) {
+      await ref.read(sharedPreferencesProvider).setBool(_directUnsupportedKey, true);
+    }
+    if (!mounted) return;
+    final position = _isLive ? null : _position.value.inMilliseconds;
+    context.pushReplacement(
+      Routes.player,
+      extra: widget.request.copyWith(startIndex: _index, startPositionMs: position, forceCompat: true),
+    );
+  }
+
+  /// mpv options media_kit hard-codes for desktop that hurt weak Android devices.
+  void _tunePlayer() {
+    final native = _player.platform;
+    if (native is! NativePlayer) {
+      _tuned = Future.value();
+      return;
+    }
+    final lowEnd = ref.read(isLowEndDeviceProvider);
+    _tuned = Future.wait([
+      // media_kit sets hr-seek-framedrop=no: every frame between the keyframe and the seek target
+      // is decoded *and displayed*, so a +15 s skip replays a burst of video while audio runs
+      // ahead. Dropping those frames makes seeks land instantly and in sync.
+      native.setProperty('hr-seek-framedrop', 'yes'),
+      // Stream cache on slow eMMC/flash stalls playback; RAM (demuxer-max-bytes) is enough.
+      native.setProperty('cache-on-disk', 'no'),
+      // Never let video fall behind audio: drop late frames instead of stuttering to catch up.
+      native.setProperty('video-sync', 'audio'),
+      native.setProperty('framedrop', 'vo'),
+      // Live TS: start decoding as soon as the first packets arrive instead of probing 5 s of data.
+      if (_isLive) ...[
+        native.setProperty('demuxer-lavf-analyzeduration', '1'),
+        native.setProperty('demuxer-lavf-probesize', '500000'),
+        native.setProperty('demuxer-readahead-secs', '3'),
+      ] else
+        native.setProperty('demuxer-readahead-secs', '20'),
+      // Hardware decoding leaves the CPU idle; extra software threads only cost RAM on 2 GB boxes.
+      if (lowEnd) native.setProperty('vd-lavc-threads', '2'),
+    ]).then((_) {}, onError: (Object e) => debugPrint('mpv tuning failed: $e'));
+  }
+
+  Future<void> _saveProgress({bool flush = false}) async {
     final playlistId = _playlistId;
     if (playlistId == null) return;
+    // Read before any await: on dispose the ref is gone once the DB write completes.
+    final sync = ref.read(progressSyncProvider);
     try {
       if (_isLive) {
         if (_item.id.contains('@')) return; // catch-up playback is not a "recent channel"
         await _db.saveHistory(playlistId: playlistId, kind: ContentKind.live, itemId: _item.id);
-        return;
+      } else {
+        final pos = _position.value;
+        if (pos < const Duration(seconds: 5)) return;
+        await _db.saveHistory(
+          playlistId: playlistId,
+          kind: _item.kind,
+          itemId: _item.id,
+          parentId: _item.parentId,
+          positionMs: pos.inMilliseconds,
+          durationMs: _duration.value.inMilliseconds,
+        );
       }
-      final pos = _position.value;
-      if (pos < const Duration(seconds: 5)) return;
-      await _db.saveHistory(
-        playlistId: playlistId,
-        kind: _item.kind,
-        itemId: _item.id,
-        parentId: _item.parentId,
-        positionMs: pos.inMilliseconds,
-        durationMs: _duration.value.inMilliseconds,
-      );
+      // Mirror to the account (profile + playlist scoped); debounced while playing, immediate on exit.
+      sync.schedule(playlistId);
+      if (flush) unawaited(sync.flush());
     } catch (e) {
       debugPrint('saveHistory failed: $e');
     }
@@ -391,7 +484,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     ),
                   ),
                 ),
-                if (_buffering && _error == null) const Center(child: CircularProgressIndicator()),
+                if (_error == null)
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _buffering,
+                    builder: (_, buffering, _) => buffering ? const Center(child: CircularProgressIndicator()) : const SizedBox.shrink(),
+                  ),
                 if (_error != null) _ErrorBanner(message: _error!, onRetry: _open, onExit: () => context.pop()),
                 if (!_isLive) _SeekIndicator(pending: _pendingSeek, position: _position),
                 AnimatedOpacity(
@@ -507,11 +604,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         onPressed: widget.request.items.length > 1 ? _previous : null,
                       ),
                       if (!_isLive) IconButton(icon: const Icon(Icons.replay_rounded), onPressed: () => _seekBy(-_seekStep)),
-                      IconButton(
-                        autofocus: true,
-                        iconSize: 34,
-                        icon: Icon(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
-                        onPressed: _togglePlay,
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _playing,
+                        builder: (_, playing, _) => IconButton(
+                          autofocus: true,
+                          iconSize: 34,
+                          icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+                          onPressed: _togglePlay,
+                        ),
                       ),
                       if (!_isLive) IconButton(icon: const Icon(Icons.forward_rounded), onPressed: () => _seekBy(_seekStep)),
                       IconButton(

@@ -156,12 +156,23 @@ abstract final class AppTheme {
           shape: const WidgetStatePropertyAll(pill),
           padding: pillPadding,
           textStyle: WidgetStatePropertyAll(text.labelLarge),
+          // On TV the primary button is white at rest, so focus needs its own cue: a slightly
+          // dimmed rest state and an accent ring when focused.
           backgroundColor: WidgetStateProperty.resolveWith(
-            (s) => s.contains(WidgetState.disabled) ? const Color(0x1FFFFFFF) : white,
+            (s) => s.contains(WidgetState.disabled)
+                ? const Color(0x1FFFFFFF)
+                : tv && !s.contains(WidgetState.focused)
+                    ? const Color(0xFFC9C9CE)
+                    : white,
           ),
           foregroundColor: WidgetStateProperty.resolveWith(
             (s) => s.contains(WidgetState.disabled) ? const Color(0x66FFFFFF) : Colors.black,
           ),
+          side: tv
+              ? WidgetStateProperty.resolveWith(
+                  (s) => s.contains(WidgetState.focused) ? const BorderSide(color: accent, width: 3) : BorderSide.none,
+                )
+              : null,
           overlayColor: const WidgetStatePropertyAll(Color(0x14000000)),
           elevation: const WidgetStatePropertyAll(0),
         ),

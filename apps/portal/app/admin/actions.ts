@@ -74,6 +74,19 @@ export async function deletePlaylistAdminAction(form: FormData): Promise<void> {
   revalidatePath(`/admin/devices/${deviceId}`);
 }
 
+/** Empty → null (fallback to the PORTAL_URL secret); invalid → false. */
+function normalizePortalUrl(raw: string): string | null | false {
+  const s = raw.trim().replace(/\/+$/, "");
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return s;
+  } catch {
+    return false;
+  }
+}
+
 export async function saveConfigAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const supabase = await admin();
   const entries: Record<string, unknown> = {
@@ -82,8 +95,10 @@ export async function saveConfigAction(_prev: ActionState, form: FormData): Prom
     min_version: String(form.get("min_version") ?? "").trim() || null,
     latest_version: String(form.get("latest_version") ?? "").trim() || null,
     apk_link: String(form.get("apk_link") ?? "").trim() || null,
+    portal_url: normalizePortalUrl(String(form.get("portal_url") ?? "")),
     trial_days: Math.max(0, Number(form.get("trial_days") ?? 7) || 0),
   };
+  if (entries.portal_url === false) return { error: "L'URL du portail doit commencer par http:// ou https://." };
   for (const [key, value] of Object.entries(entries)) {
     const { error } = await supabase.from("app_config").upsert({ key, value, updated_at: new Date().toISOString() });
     if (error) return { error: error.message };

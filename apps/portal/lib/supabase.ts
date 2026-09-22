@@ -29,3 +29,45 @@ export async function requireAdmin() {
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
   return { supabase, user, isAdmin: profile?.role === "admin" };
 }
+
+/** Signed-in end user (any role). */
+export async function requireUser() {
+  const supabase = await createSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  return { supabase, user };
+}
+
+export function functionsUrl(): string {
+  const explicit = process.env.SUPABASE_FUNCTIONS_URL;
+  if (explicit) return explicit.replace(/\/$/, "");
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+  return `${base.replace(/\/$/, "")}/functions/v1`;
+}
+
+export class FunctionError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+/** Calls an Edge Function with the current user's Supabase session (pairing confirmation…). */
+export async function callAsUser<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const supabase = await createSupabaseServer();
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new FunctionError(401, "Session expirée.");
+  const res = await fetch(`${functionsUrl()}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+      Authorization: `Bearer ${token}`,
+      ...(init.headers as Record<string, string> | undefined),
+    },
+    cache: "no-store",
+  });
+  const text = await res.text();
+  const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  if (!res.ok) throw new FunctionError(res.status, String(body.error ?? res.statusText));
+  return body as T;
+}

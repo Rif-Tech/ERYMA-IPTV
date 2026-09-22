@@ -14,6 +14,13 @@ enum SortOrder { defaultOrder, az, za, added, rating }
 
 enum VideoFit { contain, cover, fill }
 
+/// Android video path. `direct` decodes straight into the surface (mediacodec_embed), which is
+/// what low-end TV boxes need; `compat` keeps mpv's GPU renderer with software fallback.
+enum VideoDecoder { auto, direct, compat }
+
+/// Lighter visuals (no blur/shimmer, shorter fades, smaller caches) for weak hardware.
+enum PerformanceMode { auto, on, off }
+
 /// Where the home hero ("À la une") takes its content from.
 enum FeaturedSource { curated, popular, tmdb }
 
@@ -27,6 +34,8 @@ class AppSettings {
     this.layout = ContentLayout.grid,
     this.sortOrder = SortOrder.defaultOrder,
     this.videoFit = VideoFit.contain,
+    this.videoDecoder = VideoDecoder.auto,
+    this.performanceMode = PerformanceMode.auto,
     this.subtitleScale = 1.0,
     this.subtitleColor = 0xFFFFFFFF,
     this.subtitleBackground = false,
@@ -34,6 +43,7 @@ class AppSettings {
     this.featuredSource = FeaturedSource.curated,
     this.parentalPin,
     this.activePlaylistId,
+    this.activeProfileId,
   });
 
   final Locale? locale;
@@ -43,6 +53,8 @@ class AppSettings {
   final ContentLayout layout;
   final SortOrder sortOrder;
   final VideoFit videoFit;
+  final VideoDecoder videoDecoder;
+  final PerformanceMode performanceMode;
   final double subtitleScale;
   final int subtitleColor;
   final bool subtitleBackground;
@@ -50,6 +62,9 @@ class AppSettings {
   final FeaturedSource featuredSource;
   final String? parentalPin;
   final String? activePlaylistId;
+
+  /// Viewer profile (server id) whose history/favourites are shown; null until picked.
+  final String? activeProfileId;
 
   bool get hasParentalPin => parentalPin != null && parentalPin!.isNotEmpty;
 
@@ -62,6 +77,8 @@ class AppSettings {
     ContentLayout? layout,
     SortOrder? sortOrder,
     VideoFit? videoFit,
+    VideoDecoder? videoDecoder,
+    PerformanceMode? performanceMode,
     double? subtitleScale,
     int? subtitleColor,
     bool? subtitleBackground,
@@ -71,6 +88,8 @@ class AppSettings {
     bool clearParentalPin = false,
     String? activePlaylistId,
     bool clearActivePlaylist = false,
+    String? activeProfileId,
+    bool clearActiveProfile = false,
   }) =>
       AppSettings(
         locale: clearLocale ? null : (locale ?? this.locale),
@@ -80,6 +99,8 @@ class AppSettings {
         layout: layout ?? this.layout,
         sortOrder: sortOrder ?? this.sortOrder,
         videoFit: videoFit ?? this.videoFit,
+        videoDecoder: videoDecoder ?? this.videoDecoder,
+        performanceMode: performanceMode ?? this.performanceMode,
         subtitleScale: subtitleScale ?? this.subtitleScale,
         subtitleColor: subtitleColor ?? this.subtitleColor,
         subtitleBackground: subtitleBackground ?? this.subtitleBackground,
@@ -87,6 +108,7 @@ class AppSettings {
         featuredSource: featuredSource ?? this.featuredSource,
         parentalPin: clearParentalPin ? null : (parentalPin ?? this.parentalPin),
         activePlaylistId: clearActivePlaylist ? null : (activePlaylistId ?? this.activePlaylistId),
+        activeProfileId: clearActiveProfile ? null : (activeProfileId ?? this.activeProfileId),
       );
 }
 
@@ -115,6 +137,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       layout: enumOf(ContentLayout.values, 'layout', ContentLayout.grid),
       sortOrder: enumOf(SortOrder.values, 'sortOrder', SortOrder.defaultOrder),
       videoFit: enumOf(VideoFit.values, 'videoFit', VideoFit.contain),
+      videoDecoder: enumOf(VideoDecoder.values, 'videoDecoder', VideoDecoder.auto),
+      performanceMode: enumOf(PerformanceMode.values, 'performanceMode', PerformanceMode.auto),
       subtitleScale: _prefs.getDouble('subtitleScale') ?? 1.0,
       subtitleColor: _prefs.getInt('subtitleColor') ?? 0xFFFFFFFF,
       subtitleBackground: _prefs.getBool('subtitleBackground') ?? false,
@@ -122,6 +146,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       featuredSource: enumOf(FeaturedSource.values, 'featuredSource', FeaturedSource.curated),
       parentalPin: _prefs.getString('parentalPin'),
       activePlaylistId: _prefs.getString('activePlaylistId'),
+      activeProfileId: _prefs.getString('activeProfileId'),
     );
   }
 
@@ -137,6 +162,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setLayout(ContentLayout l) => update(state.copyWith(layout: l));
   Future<void> setSortOrder(SortOrder s) => update(state.copyWith(sortOrder: s));
   Future<void> setVideoFit(VideoFit f) => update(state.copyWith(videoFit: f));
+  Future<void> setVideoDecoder(VideoDecoder d) => update(state.copyWith(videoDecoder: d));
+  Future<void> setPerformanceMode(PerformanceMode m) => update(state.copyWith(performanceMode: m));
   Future<void> setSubtitleScale(double s) => update(state.copyWith(subtitleScale: s));
   Future<void> setSubtitleColor(int c) => update(state.copyWith(subtitleColor: c));
   Future<void> setSubtitleBackground(bool b) => update(state.copyWith(subtitleBackground: b));
@@ -146,6 +173,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       update(state.copyWith(parentalPin: pin, clearParentalPin: pin == null || pin.isEmpty));
   Future<void> setActivePlaylistId(String? id) =>
       update(state.copyWith(activePlaylistId: id, clearActivePlaylist: id == null));
+  Future<void> setActiveProfileId(String? id) =>
+      update(state.copyWith(activeProfileId: id, clearActiveProfile: id == null));
 
   Future<void> _persist(AppSettings s) async {
     Future<void> put(String key, Object? value) async {
@@ -169,6 +198,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await put('layout', s.layout.name);
     await put('sortOrder', s.sortOrder.name);
     await put('videoFit', s.videoFit.name);
+    await put('videoDecoder', s.videoDecoder.name);
+    await put('performanceMode', s.performanceMode.name);
     await put('subtitleScale', s.subtitleScale);
     await put('subtitleColor', s.subtitleColor);
     await put('subtitleBackground', s.subtitleBackground);
@@ -176,6 +207,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await put('featuredSource', s.featuredSource.name);
     await put('parentalPin', s.parentalPin);
     await put('activePlaylistId', s.activePlaylistId);
+    await put('activeProfileId', s.activeProfileId);
   }
 }
 

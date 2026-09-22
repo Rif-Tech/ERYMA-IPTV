@@ -12,6 +12,7 @@ import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/images/artwork_cache.dart';
 import '../../core/settings/settings.dart';
 import '../../core/xtream/xtream_client.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -62,7 +63,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
     _schedule();
     // Event badges flip from "date" to "now" on their own; re-evaluate once a minute.
     _clock = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted && widget.items.any((h) => h.eventAt != null)) setState(() {});
+      if (mounted && TickerMode.valuesOf(context).enabled && widget.items.any((h) => h.eventAt != null)) setState(() {});
     });
   }
 
@@ -76,7 +77,8 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
     _timer?.cancel();
     if (widget.items.length < 2) return;
     _timer = Timer.periodic(HeroCarousel.rotate, (_) {
-      if (!_paused && mounted) _go(_index + 1);
+      // Home stays mounted behind other tabs: do not rotate (and prefetch art) while offstage.
+      if (!_paused && mounted && TickerMode.valuesOf(context).enabled) _go(_index + 1);
     });
   }
 
@@ -92,7 +94,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
     if (widget.items.isEmpty) return;
     final item = widget.items[i % widget.items.length];
     final url = _artFor(item, listen: false).$1;
-    if (AppImage.isValid(url)) precacheImage(CachedNetworkImageProvider(url!, maxWidth: 1280), context).ignore();
+    if (AppImage.isValid(url)) precacheImage(CachedNetworkImageProvider(url!, maxWidth: 1280, cacheManager: ArtworkCache.instance), context).ignore();
   }
 
   @override
@@ -147,6 +149,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
     final series = h.series;
     final (art, isBackdrop) = _artFor(h);
     final gutter = t.pageGutter;
+    final lite = ref.watch(performanceModeProvider);
 
     final meta = <String>[];
     String? plot = h.overview;
@@ -221,12 +224,13 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
             fit: StackFit.expand,
             children: [
               // Art: cross-fades between items; a poster fallback is enlarged and softly blurred.
+              // The cross-fade composites two full-screen images: on weak GPUs swap quickly instead.
               AnimatedSwitcher(
-                duration: const Duration(milliseconds: 450),
+                duration: Duration(milliseconds: lite ? 120 : 450),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
                 // Default layout is a loose Stack, which would let the image shrink to its decoded size.
-                layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, ?current]),
+                layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [if (!lite) ...previous, ?current]),
                 child: KeyedSubtree(
                   key: ValueKey(art ?? h.id),
                   child: BackdropArt(backdrop: isBackdrop ? art : null, poster: isBackdrop ? h.posterUrl : art),

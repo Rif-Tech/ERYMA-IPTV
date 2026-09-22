@@ -434,6 +434,18 @@ abstract class AppLocalizations {
   /// **'Scan the QR code to add a playlist from the web portal.'**
   String get scanQr;
 
+  /// No description provided for @scanQrManage.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan this QR code to add, edit or remove your playlists from the web portal.'**
+  String get scanQrManage;
+
+  /// No description provided for @managePlaylistsOnline.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage my playlists on the web'**
+  String get managePlaylistsOnline;
+
   /// No description provided for @openPortal.
   ///
   /// In en, this message translates to:
@@ -500,16 +512,202 @@ abstract class AppLocalizations {
   /// **'This MAC address is already registered with another device key. Ask the administrator to delete the device on the portal, then restart the app.'**
   String get deviceKeyConflict;
 
+  /// No description provided for @pairTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Link this device to your account'**
+  String get pairTitle;
+
+  /// No description provided for @pairStep1.
+  ///
+  /// In en, this message translates to:
+  /// **'On your phone or computer, open {url}'**
+  String pairStep1(String url);
+
+  /// No description provided for @pairStep2.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in (or create a free account).'**
+  String get pairStep2;
+
+  /// No description provided for @pairStep3.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the code below, or scan the QR code.'**
+  String get pairStep3;
+
+  /// No description provided for @pairCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Code'**
+  String get pairCode;
+
+  /// No description provided for @pairExpiresIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Code expires in {time}'**
+  String pairExpiresIn(String time);
+
+  /// No description provided for @pairExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'This code has expired.'**
+  String get pairExpired;
+
+  /// No description provided for @pairNewCode.
+  ///
+  /// In en, this message translates to:
+  /// **'New code'**
+  String get pairNewCode;
+
+  /// No description provided for @pairWaiting.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for confirmation…'**
+  String get pairWaiting;
+
+  /// No description provided for @pairConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Device linked! Loading your account…'**
+  String get pairConfirmed;
+
+  /// No description provided for @pairFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not start pairing: {error}'**
+  String pairFailed(String error);
+
+  /// No description provided for @pairLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue without an account'**
+  String get pairLater;
+
+  /// No description provided for @addPlaylistTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a playlist'**
+  String get addPlaylistTitle;
+
+  /// No description provided for @addPlaylistPairIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlists are managed on the web. Scan the QR code or enter this code on {url} to add an M3U or Xtream Codes source to your account.'**
+  String addPlaylistPairIntro(String url);
+
+  /// No description provided for @addPlaylistConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlist added! Syncing…'**
+  String get addPlaylistConfirmed;
+
+  /// No description provided for @whoIsWatching.
+  ///
+  /// In en, this message translates to:
+  /// **'Who\'s watching?'**
+  String get whoIsWatching;
+
+  /// No description provided for @switchProfile.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch profile'**
+  String get switchProfile;
+
+  /// No description provided for @kidsProfile.
+  ///
+  /// In en, this message translates to:
+  /// **'Kids'**
+  String get kidsProfile;
+
+  /// No description provided for @manageProfilesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Profiles are created and edited on the web portal.'**
+  String get manageProfilesHint;
+
+  /// No description provided for @noProfileAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'This profile has no access to any playlist. Edit its access on the web portal.'**
+  String get noProfileAccess;
+
+  /// No description provided for @account.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get account;
+
+  /// No description provided for @accountPlan.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan'**
+  String get accountPlan;
+
+  /// No description provided for @accountDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to {count} device(s)'**
+  String accountDevices(int count);
+
+  /// No description provided for @accountExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Account expired'**
+  String get accountExpired;
+
+  /// No description provided for @accountManageOnline.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage your devices, profiles and playlists at {url}'**
+  String accountManageOnline(String url);
+
+  /// No description provided for @deviceName.
+  ///
+  /// In en, this message translates to:
+  /// **'Device name'**
+  String get deviceName;
+
+  /// No description provided for @unpairDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlink this device'**
+  String get unpairDevice;
+
+  /// No description provided for @unpairDeviceConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'The device will be detached from your account and must be linked again with a new code. Your playlists and history stay on your account.'**
+  String get unpairDeviceConfirm;
+
+  /// No description provided for @unpaired.
+  ///
+  /// In en, this message translates to:
+  /// **'Device not linked'**
+  String get unpaired;
+
+  /// No description provided for @unpairedDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'This device is no longer linked to an account. Link it again to get your playlists back.'**
+  String get unpairedDescription;
+
+  /// No description provided for @pairDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Link device'**
+  String get pairDevice;
+
   /// No description provided for @noPlaylistTitle.
   ///
   /// In en, this message translates to:
-  /// **'No playlist for this device'**
+  /// **'No playlist'**
   String get noPlaylistTitle;
 
   /// No description provided for @noPlaylistDescription.
   ///
   /// In en, this message translates to:
-  /// **'Playlists can be added here or on the web portal using your MAC address and device key.'**
+  /// **'Your account has no playlist this profile can access yet.'**
   String get noPlaylistDescription;
 
   /// No description provided for @addPlaylist.
@@ -739,12 +937,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Login failed. Check the username and password.'**
   String get loginFailed;
-
-  /// No description provided for @accountExpired.
-  ///
-  /// In en, this message translates to:
-  /// **'Account expired'**
-  String get accountExpired;
 
   /// No description provided for @accountExpires.
   ///
@@ -1040,6 +1232,54 @@ abstract class AppLocalizations {
   /// **'Stretch'**
   String get fitStretch;
 
+  /// No description provided for @videoDecoder.
+  ///
+  /// In en, this message translates to:
+  /// **'Video decoding'**
+  String get videoDecoder;
+
+  /// No description provided for @decoderAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (direct on TV)'**
+  String get decoderAuto;
+
+  /// No description provided for @decoderDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct hardware — smoothest'**
+  String get decoderDirect;
+
+  /// No description provided for @decoderCompat.
+  ///
+  /// In en, this message translates to:
+  /// **'Compatibility — slower'**
+  String get decoderCompat;
+
+  /// No description provided for @performanceMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Performance mode'**
+  String get performanceMode;
+
+  /// No description provided for @performanceAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (on for TV boxes)'**
+  String get performanceAuto;
+
+  /// No description provided for @performanceOn.
+  ///
+  /// In en, this message translates to:
+  /// **'On — lighter visuals, smoother'**
+  String get performanceOn;
+
+  /// No description provided for @performanceOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off — full visuals'**
+  String get performanceOff;
+
   /// No description provided for @clearCache.
   ///
   /// In en, this message translates to:
@@ -1291,12 +1531,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Playback'**
   String get playback;
-
-  /// No description provided for @account.
-  ///
-  /// In en, this message translates to:
-  /// **'Account'**
-  String get account;
 
   /// No description provided for @episodesTitle.
   ///

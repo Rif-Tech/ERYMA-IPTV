@@ -185,6 +185,13 @@ class AppLocalizationsFr extends AppLocalizations {
       'Scannez le QR code pour ajouter une playlist depuis le portail web.';
 
   @override
+  String get scanQrManage =>
+      'Scannez ce QR code pour ajouter, modifier ou supprimer vos playlists depuis le portail web.';
+
+  @override
+  String get managePlaylistsOnline => 'Gérer mes playlists sur le web';
+
+  @override
   String get openPortal => 'Ouvrir le portail';
 
   @override
@@ -227,11 +234,121 @@ class AppLocalizationsFr extends AppLocalizations {
       'Cette adresse MAC est déjà enregistrée avec une autre clé appareil. Demandez à l\'administrateur de supprimer l\'appareil sur le portail, puis relancez l\'application.';
 
   @override
-  String get noPlaylistTitle => 'Aucune playlist pour cet appareil';
+  String get pairTitle => 'Connectez cet appareil à votre compte';
+
+  @override
+  String pairStep1(String url) {
+    return 'Sur votre téléphone ou ordinateur, ouvrez $url';
+  }
+
+  @override
+  String get pairStep2 => 'Connectez-vous (ou créez un compte gratuit).';
+
+  @override
+  String get pairStep3 =>
+      'Saisissez le code ci-dessous, ou scannez le QR code.';
+
+  @override
+  String get pairCode => 'Code';
+
+  @override
+  String pairExpiresIn(String time) {
+    return 'Le code expire dans $time';
+  }
+
+  @override
+  String get pairExpired => 'Ce code a expiré.';
+
+  @override
+  String get pairNewCode => 'Nouveau code';
+
+  @override
+  String get pairWaiting => 'En attente de confirmation…';
+
+  @override
+  String get pairConfirmed => 'Appareil connecté ! Chargement de votre compte…';
+
+  @override
+  String pairFailed(String error) {
+    return 'Impossible de démarrer l\'appairage : $error';
+  }
+
+  @override
+  String get pairLater => 'Continuer sans compte';
+
+  @override
+  String get addPlaylistTitle => 'Ajouter une liste de lecture';
+
+  @override
+  String addPlaylistPairIntro(String url) {
+    return 'Les listes de lecture se gèrent depuis le web. Scannez le QR code ou saisissez ce code sur $url pour ajouter une source M3U ou Xtream Codes à votre compte.';
+  }
+
+  @override
+  String get addPlaylistConfirmed => 'Liste ajoutée ! Synchronisation…';
+
+  @override
+  String get whoIsWatching => 'Qui regarde ?';
+
+  @override
+  String get switchProfile => 'Changer de profil';
+
+  @override
+  String get kidsProfile => 'Enfant';
+
+  @override
+  String get manageProfilesHint =>
+      'Les profils se créent et se modifient depuis le portail web.';
+
+  @override
+  String get noProfileAccess =>
+      'Ce profil n\'a accès à aucune liste de lecture. Modifiez ses accès sur le portail web.';
+
+  @override
+  String get account => 'Compte';
+
+  @override
+  String get accountPlan => 'Formule';
+
+  @override
+  String accountDevices(int count) {
+    return '$count appareil(s) maximum';
+  }
+
+  @override
+  String get accountExpired => 'Compte expiré';
+
+  @override
+  String accountManageOnline(String url) {
+    return 'Gérez vos appareils, profils et listes de lecture sur $url';
+  }
+
+  @override
+  String get deviceName => 'Nom de l\'appareil';
+
+  @override
+  String get unpairDevice => 'Déconnecter cet appareil';
+
+  @override
+  String get unpairDeviceConfirm =>
+      'L\'appareil sera détaché de votre compte : il faudra le reconnecter avec un nouveau code. Vos listes et votre historique restent sur votre compte.';
+
+  @override
+  String get unpaired => 'Appareil non connecté';
+
+  @override
+  String get unpairedDescription =>
+      'Cet appareil n\'est plus relié à un compte. Reconnectez-le pour retrouver vos listes de lecture.';
+
+  @override
+  String get pairDevice => 'Connecter l\'appareil';
+
+  @override
+  String get noPlaylistTitle => 'Aucune liste de lecture';
 
   @override
   String get noPlaylistDescription =>
-      'Les playlists peuvent être ajoutées ici ou sur le portail web avec votre adresse MAC et votre clé appareil.';
+      'Votre compte ne contient encore aucune liste de lecture accessible à ce profil.';
 
   @override
   String get addPlaylist => 'Ajouter une playlist';
@@ -355,9 +472,6 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get loginFailed =>
       'Connexion refusée. Vérifiez l\'identifiant et le mot de passe.';
-
-  @override
-  String get accountExpired => 'Compte expiré';
 
   @override
   String accountExpires(String date) {
@@ -511,6 +625,30 @@ class AppLocalizationsFr extends AppLocalizations {
   String get fitStretch => 'Étirer';
 
   @override
+  String get videoDecoder => 'Décodage vidéo';
+
+  @override
+  String get decoderAuto => 'Automatique (direct sur TV)';
+
+  @override
+  String get decoderDirect => 'Matériel direct — le plus fluide';
+
+  @override
+  String get decoderCompat => 'Compatibilité — plus lent';
+
+  @override
+  String get performanceMode => 'Mode performance';
+
+  @override
+  String get performanceAuto => 'Automatique (actif sur les box TV)';
+
+  @override
+  String get performanceOn => 'Activé — visuels allégés, plus fluide';
+
+  @override
+  String get performanceOff => 'Désactivé — visuels complets';
+
+  @override
   String get clearCache => 'Vider le cache';
 
   @override
@@ -644,9 +782,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get playback => 'Lecture';
-
-  @override
-  String get account => 'Compte';
 
   @override
   String get episodesTitle => 'Épisodes';
