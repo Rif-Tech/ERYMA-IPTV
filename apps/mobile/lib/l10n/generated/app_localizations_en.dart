@@ -279,6 +279,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get addPlaylistTitle => 'Add a playlist';
 
   @override
+  String get addPlaylistWebStep1 =>
+      'On your phone or computer, scan the QR code or open';
+
+  @override
+  String get addPlaylistWebStep2 =>
+      'Sign in to your account, then add your M3U or Xtream Codes source.';
+
+  @override
+  String get addPlaylistWebStep3 =>
+      'Come back here: the playlist shows up automatically, or press the button below.';
+
+  @override
+  String get addPlaylistDone => 'I added my playlist';
+
+  @override
+  String get addPlaylistChecking => 'Checking…';
+
+  @override
+  String addPlaylistAutoRefresh(int seconds) {
+    return 'This screen refreshes itself every $seconds seconds.';
+  }
+
+  @override
+  String get addPlaylistNotYet =>
+      'No playlist found yet. Check that it is saved on the portal and accessible to this profile.';
+
+  @override
   String addPlaylistPairIntro(String url) {
     return 'Playlists are managed on the web. Scan the QR code or enter this code on $url to add an M3U or Xtream Codes source to your account.';
   }

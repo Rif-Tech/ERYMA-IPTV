@@ -22,9 +22,19 @@ export async function createSupabaseServer() {
   );
 }
 
+export type SessionUser = { id: string; email: string | null };
+
+/** Current user from the session JWT, verified locally (no Auth round-trip per request). */
+export async function currentUser(supabase: Awaited<ReturnType<typeof createSupabaseServer>>): Promise<SessionUser | null> {
+  const { data, error } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (error || !claims?.sub) return null;
+  return { id: String(claims.sub), email: typeof claims.email === "string" ? claims.email : null };
+}
+
 export async function requireAdmin() {
   const supabase = await createSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await currentUser(supabase);
   if (!user) return { supabase, user: null, isAdmin: false };
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
   return { supabase, user, isAdmin: profile?.role === "admin" };
@@ -33,7 +43,7 @@ export async function requireAdmin() {
 /** Signed-in end user (any role). */
 export async function requireUser() {
   const supabase = await createSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await currentUser(supabase);
   return { supabase, user };
 }
 

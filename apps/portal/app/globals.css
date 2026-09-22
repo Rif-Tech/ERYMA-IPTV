@@ -1,32 +1,142 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: #000;
+}
+
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  min-height: 100%;
+  color: #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(120, 119, 198, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(10, 132, 255, 0.14), transparent 55%),
+    linear-gradient(180deg, #0b0b0d 0%, #050506 100%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 @layer components {
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition disabled:opacity-50;
+  /* Buttons: tvOS pills. */
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-[transform,background-color,color,box-shadow] duration-150 disabled:opacity-40 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-black active:scale-[0.98];
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition disabled:opacity-50 bg-blue-600 text-white hover:bg-blue-500;
+    @apply bg-white text-black shadow-[0_8px_30px_rgba(255,255,255,0.12)] hover:bg-white/90;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition disabled:opacity-50 border border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800;
+    @apply bg-white/[0.08] text-white ring-1 ring-inset ring-white/10 hover:bg-white/[0.14];
   }
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition disabled:opacity-50 border border-red-900 bg-red-950 text-red-200 hover:bg-red-900;
+    @apply bg-red-500/15 text-red-200 ring-1 ring-inset ring-red-500/30 hover:bg-red-500/25;
   }
+
   .input {
-    @apply w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none;
+    @apply w-full rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2.5 text-sm text-white placeholder:text-white/35 transition focus:border-white/40 focus:bg-white/[0.09] focus:outline-none focus:ring-2 focus:ring-white/20;
+  }
+  select.input {
+    appearance: none;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-opacity='.6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.9rem center;
+    background-size: 12px 12px;
+  }
+  select.input option {
+    @apply bg-[#1c1c1e] text-white;
   }
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400;
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/50;
   }
+
+  /* Surfaces: frosted glass panels. */
   .card {
-    @apply rounded-lg border border-slate-800 bg-slate-900/60 p-5;
+    @apply rounded-2xl border border-white/10 bg-white/[0.06] p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.9)] backdrop-blur-xl;
+  }
+  .card-strong {
+    @apply rounded-2xl border border-white/15 bg-white/[0.1] p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.9)] backdrop-blur-xl;
   }
   .badge {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 rounded-full bg-white/[0.08] px-2.5 py-0.5 text-xs font-medium text-white/80 ring-1 ring-inset ring-white/10;
   }
+  .notice-success {
+    @apply flex items-start gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-emerald-100;
+  }
+  .notice-error {
+    @apply rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-100;
+  }
+
+  /* Segmented control (tvOS tab bar). */
+  .segmented {
+    @apply inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-white/[0.06] p-1 ring-1 ring-inset ring-white/10;
+  }
+  .tab {
+    @apply whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium text-white/65 transition hover:text-white;
+  }
+  .tab-active {
+    @apply bg-white text-black shadow-sm hover:text-black;
+  }
+
+  .page-title {
+    @apply text-3xl font-semibold tracking-tight;
+  }
+  .muted {
+    @apply text-white/55;
+  }
+
+  /* Legacy palette used across admin/account pages → glass equivalents. */
+  .border-slate-800,
+  .border-slate-700 {
+    border-color: rgb(255 255 255 / 0.1) !important;
+  }
+  .bg-slate-900,
+  .bg-slate-900\/60,
+  .bg-slate-950\/60 {
+    background-color: rgb(255 255 255 / 0.05) !important;
+  }
+  .hover\:bg-slate-900\/60:hover,
+  .hover\:bg-slate-900:hover,
+  .hover\:bg-slate-800:hover {
+    background-color: rgb(255 255 255 / 0.08) !important;
+  }
+  .text-slate-400,
+  .text-slate-500 {
+    color: rgb(255 255 255 / 0.55) !important;
+  }
+  .text-slate-300 {
+    color: rgb(255 255 255 / 0.75) !important;
+  }
+  .text-blue-400 {
+    color: #6fb2ff !important;
+  }
+  table thead {
+    @apply text-white/50;
+  }
+}
+
+/* Skeleton shimmer for loading states. */
+@keyframes shimmer {
+  from {
+    background-position: -600px 0;
+  }
+  to {
+    background-position: 600px 0;
+  }
+}
+.skeleton {
+  border-radius: 1rem;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 1200px 100%;
+  animation: shimmer 1.6s linear infinite;
 }

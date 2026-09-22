@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Playlist } from "@/lib/api";
 import { PlaylistForm } from "../../manage-playlists/playlist-form";
@@ -7,9 +8,15 @@ import { createPlaylistAction, deletePlaylistAction, movePlaylistAction, updateP
 
 const fmt = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeZone: "Europe/Paris" });
 
-export function AccountPlaylists({ playlists, canAdd }: { playlists: Playlist[]; canAdd: boolean }) {
+export function AccountPlaylists({ playlists, canAdd, initialAdd = false }: { playlists: Playlist[]; canAdd: boolean; initialAdd?: boolean }) {
+  const router = useRouter();
   const [editing, setEditing] = useState<Playlist | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(initialAdd);
+  // Drops `?add=1&paired=1` once the form has served its purpose.
+  const closeAdd = () => {
+    setAdding(false);
+    router.replace("/account/playlists");
+  };
 
   return (
     <div className="space-y-4">
@@ -57,8 +64,8 @@ export function AccountPlaylists({ playlists, canAdd }: { playlists: Playlist[];
       {adding && (
         <div className="card space-y-3">
           <h2 className="text-lg font-semibold">Nouvelle liste de lecture</h2>
-          <PlaylistForm action={createPlaylistAction} submitLabel="Ajouter" onDone={() => setAdding(false)} />
-          <button type="button" className="btn-secondary" onClick={() => setAdding(false)}>Annuler</button>
+          <PlaylistForm action={createPlaylistAction} submitLabel="Ajouter" onDone={closeAdd} />
+          <button type="button" className="btn-secondary" onClick={closeAdd}>Annuler</button>
         </div>
       )}
       {editing && (

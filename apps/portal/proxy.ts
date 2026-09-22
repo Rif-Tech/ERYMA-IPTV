@@ -18,7 +18,8 @@ export default async function proxy(request: NextRequest) {
       },
     },
   );
-  await supabase.auth.getUser();
+  // Refreshes the session cookie when needed; the JWT itself is verified locally.
+  await supabase.auth.getClaims();
   return response;
 }
 

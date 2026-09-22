@@ -40,7 +40,7 @@ export async function previewPairing(input: { code?: string; token?: string }): 
 }
 
 export async function confirmDeviceAction(_prev: ActionState, form: FormData): Promise<ActionState> {
-  const { user } = await requireUser();
+  const { supabase, user } = await requireUser();
   if (!user) redirect("/login");
   const token = String(form.get("token") ?? "") || undefined;
   const code = token ? undefined : await normalizeCode(form.get("code"));
@@ -54,7 +54,9 @@ export async function confirmDeviceAction(_prev: ActionState, form: FormData): P
     return { error: await describeError(e) };
   }
   revalidatePath("/account");
-  return { ok: true };
+  // A device without anything to play is useless: send the user straight to the add form.
+  const { count } = await supabase.from("playlists").select("id", { count: "exact", head: true }).eq("account_id", user.id);
+  redirect((count ?? 0) === 0 ? "/account/playlists?add=1&paired=1" : "/account?paired=1");
 }
 
 /** Creates the playlist on the account through the playlist pairing session shown on the TV. */

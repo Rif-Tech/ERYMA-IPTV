@@ -21,9 +21,10 @@ type Device = {
 
 const typeLabel: Record<string, string> = { tv: "Téléviseur", tablet: "Tablette", mobile: "Téléphone" };
 
-export default async function DevicesPage() {
+export default async function DevicesPage({ searchParams }: PageProps<"/account">) {
   const { supabase, user } = await requireUser();
   if (!user) redirect("/login?next=/account");
+  const justPaired = (await searchParams).paired === "1";
   const [{ data: devices, error }, { data: overview }] = await Promise.all([
     supabase.from("devices").select("id, name, device_type, platform, manufacturer, model, os, os_version, app_version, status, last_seen_at, created_at, mac").eq("account_id", user.id).order("last_seen_at", { ascending: false }),
     supabase.from("accounts_overview").select("status").eq("id", user.id).maybeSingle(),
@@ -35,7 +36,16 @@ export default async function DevicesPage() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-400">
+      {justPaired && (
+        <div className="notice-success">
+          <span className="text-lg">✓</span>
+          <div>
+            <p className="font-medium">Appareil connecté</p>
+            <p className="text-sm opacity-80">Votre écran charge vos profils et vos listes de lecture.</p>
+          </div>
+        </div>
+      )}
+      <p className="text-sm text-white/60">
         {active} appareil{active > 1 ? "s" : ""} connecté{active > 1 ? "s" : ""} sur {max}. Un appareil déconnecté ne peut plus accéder à vos listes tant qu&apos;il n&apos;est pas reconnecté.
       </p>
       {list.length === 0 && (

@@ -38,5 +38,11 @@ abstract final class AppConfig {
   /// Account area of the portal (devices, profiles, playlists).
   static String get accountUrl => '$portalUrl/account';
 
+  /// Playlists page of the account, opening straight on the "add" form.
+  static String get playlistsPageUrl => '$portalUrl/account/playlists?add=1';
+
+  /// [playlistsPageUrl] without scheme/query, short enough to type from a TV screen.
+  static String get playlistsPageLabel => '$portalHost/account/playlists';
+
   static const appName = 'MultIPTV';
 }

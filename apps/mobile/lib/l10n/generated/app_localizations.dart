@@ -590,6 +590,48 @@ abstract class AppLocalizations {
   /// **'Add a playlist'**
   String get addPlaylistTitle;
 
+  /// No description provided for @addPlaylistWebStep1.
+  ///
+  /// In en, this message translates to:
+  /// **'On your phone or computer, scan the QR code or open'**
+  String get addPlaylistWebStep1;
+
+  /// No description provided for @addPlaylistWebStep2.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to your account, then add your M3U or Xtream Codes source.'**
+  String get addPlaylistWebStep2;
+
+  /// No description provided for @addPlaylistWebStep3.
+  ///
+  /// In en, this message translates to:
+  /// **'Come back here: the playlist shows up automatically, or press the button below.'**
+  String get addPlaylistWebStep3;
+
+  /// No description provided for @addPlaylistDone.
+  ///
+  /// In en, this message translates to:
+  /// **'I added my playlist'**
+  String get addPlaylistDone;
+
+  /// No description provided for @addPlaylistChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get addPlaylistChecking;
+
+  /// No description provided for @addPlaylistAutoRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'This screen refreshes itself every {seconds} seconds.'**
+  String addPlaylistAutoRefresh(int seconds);
+
+  /// No description provided for @addPlaylistNotYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No playlist found yet. Check that it is saved on the portal and accessible to this profile.'**
+  String get addPlaylistNotYet;
+
   /// No description provided for @addPlaylistPairIntro.
   ///
   /// In en, this message translates to:

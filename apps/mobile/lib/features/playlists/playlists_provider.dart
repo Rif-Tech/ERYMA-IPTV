@@ -128,7 +128,12 @@ class DeviceSessionNotifier extends AsyncNotifier<DeviceSession> {
         // The server forgot this install (revoked/deleted): drop the secret so the pairing screen
         // shows, and remove the account's playlists from this device (their history stays server-side).
         await ref.read(installSecretProvider.notifier).clear();
-        await _mirrorPortalPlaylists(db, const []);
+        try {
+          await _mirrorPortalPlaylists(db, const []);
+        } catch (err) {
+          debugPrint('unpaired cleanup failed: $err');
+        }
+        debugPrint('session: unpaired, local account playlists removed');
         return DeviceSession.unpaired(appInfo: appInfo);
       }
       return DeviceSession(phase: SessionPhase.offline, appInfo: appInfo, error: e.message);

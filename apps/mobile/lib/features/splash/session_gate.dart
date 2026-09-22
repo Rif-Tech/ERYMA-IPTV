@@ -15,16 +15,29 @@ class SessionGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen(deviceSessionProvider, (_, next) {
-      final session = next.value;
-      if (session == null) return;
+    void toPairing() {
       final router = ref.read(routerProvider);
       final location = router.routerDelegate.currentConfiguration.uri.path;
+      debugPrint('SessionGate: unpaired at $location');
+      if (location != Routes.pairing && location != Routes.settings) router.go(Routes.pairing);
+    }
+
+    // The secret is dropped the moment the server answers 401 UNPAIRED: react right away, before
+    // the rest of the session reload (playlist cleanup) finishes.
+    ref.listen(installSecretProvider, (prev, next) {
+      if (prev?.value != null && next.hasValue && next.value == null) toPairing();
+    });
+    ref.listen(deviceSessionProvider, (_, next) {
+      final session = next.value;
+      if (session == null) {
+        if (next.hasError) debugPrint('SessionGate: session error ${next.error}');
+        return;
+      }
       if (session.unpaired) {
-        // Revoked / deleted on the portal: back to pairing, wherever we were (the splash re-checks
-        // the session before navigating, so it cannot override this).
-        if (location != Routes.pairing && location != Routes.settings) router.go(Routes.pairing);
+        toPairing();
       } else if (session.blocked) {
+        final router = ref.read(routerProvider);
+        final location = router.routerDelegate.currentConfiguration.uri.path;
         if (location != Routes.noPlaylist && location != Routes.splash) router.go(Routes.noPlaylist);
       }
     });

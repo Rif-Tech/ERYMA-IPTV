@@ -280,6 +280,33 @@ class AppLocalizationsFr extends AppLocalizations {
   String get addPlaylistTitle => 'Ajouter une liste de lecture';
 
   @override
+  String get addPlaylistWebStep1 =>
+      'Sur votre téléphone ou ordinateur, scannez le QR code ou ouvrez';
+
+  @override
+  String get addPlaylistWebStep2 =>
+      'Connectez-vous à votre compte, puis ajoutez votre source M3U ou Xtream Codes.';
+
+  @override
+  String get addPlaylistWebStep3 =>
+      'Revenez ici : la liste apparaît automatiquement, ou appuyez sur le bouton ci-dessous.';
+
+  @override
+  String get addPlaylistDone => 'J\'ai ajouté ma liste';
+
+  @override
+  String get addPlaylistChecking => 'Vérification…';
+
+  @override
+  String addPlaylistAutoRefresh(int seconds) {
+    return 'Cet écran se met à jour tout seul toutes les $seconds secondes.';
+  }
+
+  @override
+  String get addPlaylistNotYet =>
+      'Aucune liste trouvée pour l\'instant. Vérifiez qu\'elle est bien enregistrée sur le portail et accessible à ce profil.';
+
+  @override
   String addPlaylistPairIntro(String url) {
     return 'Les listes de lecture se gèrent depuis le web. Scannez le QR code ou saisissez ce code sur $url pour ajouter une source M3U ou Xtream Codes à votre compte.';
   }
