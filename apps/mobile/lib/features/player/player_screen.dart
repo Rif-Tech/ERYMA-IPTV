@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,11 +8,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/net/dns_providers.dart';
+import '../../core/platform/native_platform.dart';
 import '../../core/player/playback.dart';
 import '../../core/settings/settings.dart';
 import '../../core/sync/progress_sync.dart';
@@ -33,7 +37,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends ConsumerState<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBindingObserver {
   late final Player _player;
   late final VideoController _controller;
   late int _index;
@@ -68,6 +72,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   // Captured at init: `ref` must not be used from dispose().
   late final AppDatabase _db;
+  late final ProgressSync _sync;
   late final String? _playlistId;
   late final bool _isTv;
 
@@ -75,6 +80,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   void initState() {
     super.initState();
     _db = ref.read(databaseProvider);
+    _sync = ref.read(progressSyncProvider);
     _playlistId = ref.read(activePlaylistProvider)?.id;
     _isTv = ref.read(isTelevisionProvider);
     _index = widget.request.startIndex;
@@ -87,23 +93,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         logLevel: kDebugMode ? MPVLogLevel.warn : MPVLogLevel.error,
       ),
     );
-    // Direct-to-surface decoding: no per-frame GPU↔CPU copy, which low-end TV boxes cannot
-    // sustain. Emulators also need it because they cannot create mpv's EGL context (vo=gpu).
-    // Boxes whose MediaCodec refused a stream once are remembered: auto then starts in compat.
-    final prefs = ref.read(sharedPreferencesProvider);
-    final direct = switch (ref.read(settingsProvider).videoDecoder) {
-      VideoDecoder.direct => true,
-      VideoDecoder.compat => false,
-      VideoDecoder.auto => _isTv && !(prefs.getBool(_directUnsupportedKey) ?? false),
-    };
-    _direct = !widget.request.forceCompat && (direct || ref.read(isEmulatorProvider));
+    // Decode path ladder: direct (no copy) → hardware copy → software. Failures are remembered per
+    // install so `auto` does not retry a path this box already rejected.
+    _path = widget.request.decodePath ?? _defaultPath();
     _controller = VideoController(
       _player,
-      configuration: _direct
-          ? const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec')
-          : const VideoControllerConfiguration(),
+      configuration: switch (_path) {
+        DecodePath.direct => const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec'),
+        DecodePath.hardware => const VideoControllerConfiguration(vo: 'gpu', hwdec: 'mediacodec-copy'),
+        DecodePath.software => const VideoControllerConfiguration(vo: 'gpu', hwdec: 'no', enableHardwareAcceleration: false),
+      },
     );
     _tunePlayer();
+    unawaited(WakelockPlus.enable());
+    WidgetsBinding.instance.addObserver(this);
 
     void safeSet(VoidCallback fn) {
       if (mounted) setState(fn);
@@ -113,14 +116,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (kDebugMode) _player.stream.log.listen((l) => debugPrint('mpv[${l.level}] ${l.prefix}: ${l.text}')),
       _player.stream.error.listen((e) {
         if (_isBenignError(e)) return;
-        if (_direct && _isDecoderError(e)) {
-          _fallbackToCompat();
+        if (_path != DecodePath.software && _isDecoderError(e)) {
+          _fallback('decoder error: $e');
           return;
         }
         safeSet(() => _error = e);
       }),
       _player.stream.buffering.listen((b) => _buffering.value = b),
-      _player.stream.playing.listen((p) => _playing.value = p),
+      _player.stream.playing.listen((p) {
+        _playing.value = p;
+        if (p) _armWatchdog();
+      }),
       // While a seek is pending, keep showing the target instead of the stale playback position.
       _player.stream.position.listen((p) {
         if (_pendingSeek.value == null) _position.value = p;
@@ -147,9 +153,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _hideTimer?.cancel();
     _saveTimer?.cancel();
     _seekCommitTimer?.cancel();
+    _watchdog?.cancel();
+    _progressFocus.dispose();
+    _playFocus.dispose();
     _saveProgress(flush: true);
     for (final s in _subs) {
       s.cancel();
@@ -160,11 +170,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _buffering.dispose();
     _playing.dispose();
     _pendingSeek.dispose();
+    unawaited(WakelockPlus.disable());
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     if (!_isTv) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     super.dispose();
+  }
+
+  /// Handheld only: switch to Picture-in-Picture instead of stopping playback when backgrounded.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.inactive || _isTv || !Platform.isAndroid || !_playing.value) return;
+    final w = _videoWidth ?? 16;
+    final h = _videoHeight ?? 9;
+    unawaited(NativePlatform.enterPip(width: w, height: h));
   }
 
   Future<void> _open() async {
@@ -188,34 +208,73 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final Future<void> _tuned;
 
   static const _directUnsupportedKey = 'directDecodeUnsupported';
-  late final bool _direct;
+  static const _hardwareUnsupportedKey = 'hardwareCopyUnsupported';
+  late final DecodePath _path;
   bool _fellBack = false;
+  Timer? _watchdog;
+  final _progressFocus = FocusNode(debugLabel: 'progress');
+  final _playFocus = FocusNode(debugLabel: 'play');
+
+  DecodePath _defaultPath() {
+    // Emulators cannot create mpv's EGL context (vo=gpu): only the direct path shows a picture.
+    if (ref.read(isEmulatorProvider)) return DecodePath.direct;
+    final prefs = ref.read(sharedPreferencesProvider);
+    return switch (ref.read(settingsProvider).videoDecoder) {
+      VideoDecoder.direct => DecodePath.direct,
+      VideoDecoder.compat => DecodePath.hardware,
+      VideoDecoder.software => DecodePath.software,
+      VideoDecoder.auto => (prefs.getBool(_directUnsupportedKey) ?? false)
+          ? ((prefs.getBool(_hardwareUnsupportedKey) ?? false) ? DecodePath.software : DecodePath.hardware)
+          : (_isTv ? DecodePath.direct : DecodePath.hardware),
+    };
+  }
 
   /// mpv reports the decoder re-init done by `vo=mediacodec_embed` as a failed seek on live
   /// (unseekable) streams; playback is unaffected, so it must not raise the error banner.
   static bool _isBenignError(String e) => e.contains('Cannot seek in this stream') || e.contains('force-seekable');
 
-  /// `vo=mediacodec_embed` can only show frames MediaCodec decoded: when the hardware codec
-  /// rejects the stream (unsupported profile, 10-bit, old firmware) audio plays without picture.
+  /// A rejected stream (unsupported profile, 10-bit, old firmware) leaves audio without picture on
+  /// the hardware paths; these messages are mpv's ways of saying so.
   static bool _isDecoderError(String e) {
     final s = e.toLowerCase();
-    return s.contains('could not open codec') || s.contains('hardware decod') || s.contains('video chain') || s.contains('mediacodec');
+    return s.contains('could not open codec') || s.contains('hardware decod') || s.contains('video chain') || s.contains('mediacodec') || s.contains('failed to initialize');
   }
 
-  /// Restarts this screen with mpv's GPU renderer + software fallback at the current position, and
-  /// remembers that this box cannot use the direct path so the next playback skips the detour.
-  Future<void> _fallbackToCompat() async {
-    if (_fellBack || !mounted || ref.read(isEmulatorProvider)) return;
+  /// Black screen without any error (decoder produces nothing): if audio is playing for a while
+  /// and no video frame size was ever reported, treat it as a decoder failure.
+  void _armWatchdog() {
+    if (_path == DecodePath.software || _fellBack || _videoWidth != null) return;
+    _watchdog?.cancel();
+    _watchdog = Timer(const Duration(seconds: 8), () {
+      if (!mounted || _fellBack || _videoWidth != null || !_playing.value || _error != null) return;
+      _fallback('no video frame after 8 s');
+    });
+  }
+
+  /// Restarts this screen one rung down the ladder at the current position and remembers that
+  /// this box cannot use the failed path, so the next playback skips the detour.
+  Future<void> _fallback(String reason) async {
+    if (_fellBack || !mounted) return;
+    final next = switch (_path) {
+      DecodePath.direct => DecodePath.hardware,
+      DecodePath.hardware => DecodePath.software,
+      DecodePath.software => null,
+    };
+    if (next == null) return;
+    // Emulators have no other working path: keep the current one and let the error show.
+    if (ref.read(isEmulatorProvider)) return;
     _fellBack = true;
-    debugPrint('direct decode failed, restarting player in compat mode');
+    _watchdog?.cancel();
+    debugPrint('player: ${_path.name} failed ($reason) → restarting with ${next.name}');
     if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto) {
-      await ref.read(sharedPreferencesProvider).setBool(_directUnsupportedKey, true);
+      final prefs = ref.read(sharedPreferencesProvider);
+      await prefs.setBool(_path == DecodePath.direct ? _directUnsupportedKey : _hardwareUnsupportedKey, true);
     }
     if (!mounted) return;
     final position = _isLive ? null : _position.value.inMilliseconds;
     context.pushReplacement(
       Routes.player,
-      extra: widget.request.copyWith(startIndex: _index, startPositionMs: position, forceCompat: true),
+      extra: widget.request.copyWith(startIndex: _index, startPositionMs: position, decodePath: next),
     );
   }
 
@@ -227,6 +286,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
     final lowEnd = ref.read(isLowEndDeviceProvider);
+    // mpv/ffmpeg resolve hostnames themselves; route them through the loopback proxy so a custom
+    // DNS (Réglages → Réseau / DNS) also applies to playlist streams, not just Dio/API calls.
+    final dnsProxyPort = ref.read(dnsProxyProvider).value;
     _tuned = Future.wait([
       // media_kit sets hr-seek-framedrop=no: every frame between the keyframe and the seek target
       // is decoded *and displayed*, so a +15 s skip replays a burst of video while audio runs
@@ -234,9 +296,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       native.setProperty('hr-seek-framedrop', 'yes'),
       // Stream cache on slow eMMC/flash stalls playback; RAM (demuxer-max-bytes) is enough.
       native.setProperty('cache-on-disk', 'no'),
-      // Never let video fall behind audio: drop late frames instead of stuttering to catch up.
+      // Never let video fall behind audio: drop frames (in the decoder too) instead of playing in
+      // slow motion when the SoC cannot keep up.
       native.setProperty('video-sync', 'audio'),
-      native.setProperty('framedrop', 'vo'),
+      native.setProperty('framedrop', 'decoder+vo'),
+      // Subtitles are opt-in from the player menu; never auto-select a track.
+      native.setProperty('sid', 'no'),
+      native.setProperty('sub-auto', 'no'),
+      // Flaky operator networks / weak Wi-Fi on TV boxes: reconnect instead of surfacing an error.
+      native.setProperty('network-timeout', '10'),
+      native.setProperty('stream-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5'),
+      if (dnsProxyPort != null) native.setProperty('http-proxy', 'http://127.0.0.1:$dnsProxyPort'),
       // Live TS: start decoding as soon as the first packets arrive instead of probing 5 s of data.
       if (_isLive) ...[
         native.setProperty('demuxer-lavf-analyzeduration', '1'),
@@ -244,16 +314,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         native.setProperty('demuxer-readahead-secs', '3'),
       ] else
         native.setProperty('demuxer-readahead-secs', '20'),
-      // Hardware decoding leaves the CPU idle; extra software threads only cost RAM on 2 GB boxes.
-      if (lowEnd) native.setProperty('vd-lavc-threads', '2'),
+      if (_path != DecodePath.direct && lowEnd) ...[
+        // Mali-400/450 class GPUs: plain bilinear scaling, no dithering/gamma passes.
+        native.setProperty('gpu-dumb-mode', 'yes'),
+        native.setProperty('vd-lavc-fast', 'yes'),
+      ],
+      if (_path == DecodePath.software) ...[
+        native.setProperty('vd-lavc-skiploopfilter', lowEnd ? 'all' : 'nonkey'),
+        native.setProperty('vd-lavc-threads', '0'),
+      ] else if (lowEnd)
+        // Hardware decoding leaves the CPU idle; extra software threads only cost RAM on 2 GB boxes.
+        native.setProperty('vd-lavc-threads', '2'),
     ]).then((_) {}, onError: (Object e) => debugPrint('mpv tuning failed: $e'));
   }
 
   Future<void> _saveProgress({bool flush = false}) async {
     final playlistId = _playlistId;
     if (playlistId == null) return;
-    // Read before any await: on dispose the ref is gone once the DB write completes.
-    final sync = ref.read(progressSyncProvider);
     try {
       if (_isLive) {
         if (_item.id.contains('@')) return; // catch-up playback is not a "recent channel"
@@ -271,8 +348,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         );
       }
       // Mirror to the account (profile + playlist scoped); debounced while playing, immediate on exit.
-      sync.schedule(playlistId);
-      if (flush) unawaited(sync.flush());
+      _sync.schedule(playlistId);
+      if (flush) unawaited(_sync.flush());
     } catch (e) {
       debugPrint('saveHistory failed: $e');
     }
@@ -293,7 +370,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   void _previous() => _goTo(_index > 0 ? _index - 1 : (_isLive ? widget.request.items.length - 1 : 0));
 
   void _showOverlay() {
-    if (!_overlay) setState(() => _overlay = true);
+    if (!_overlay) {
+      setState(() => _overlay = true);
+      // Land the D-pad on Play so the first press does something visible.
+      if (_isTv) WidgetsBinding.instance.addPostFrameCallback((_) => _playFocus.requestFocus());
+    }
     _scheduleHide();
   }
 
@@ -364,6 +445,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final key = event.logicalKey;
     final isLeft = key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.mediaRewind;
     final isRight = key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.mediaFastForward;
+    final isMediaSeek = key == LogicalKeyboardKey.mediaRewind || key == LogicalKeyboardKey.mediaFastForward;
+    final isArrow = isLeft || isRight || key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown;
+    // With the overlay up, left/right only scrub when the progress bar has focus; elsewhere the
+    // D-pad walks the buttons like any other screen. Hidden overlay: the whole remote drives playback.
+    final scrubKeys = !_isLive && (isLeft || isRight) && (isMediaSeek || !_overlay || _progressFocus.hasFocus);
 
     // Key release ends a long-press scrub: commit immediately.
     if (event is KeyUpEvent) {
@@ -376,21 +462,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_showList) return KeyEventResult.ignored;
     final repeat = event is KeyRepeatEvent;
 
-    if (!_isLive && (isLeft || isRight)) {
+    if (scrubKeys) {
       final step = repeat ? _repeatStep() : _seekStep;
       _seekBy(isRight ? step : -step);
       return KeyEventResult.handled;
     }
     if (repeat) return KeyEventResult.ignored;
 
+    if (_overlay && isArrow) {
+      // Keep the controls visible while the user moves between them; traversal does the rest.
+      _scheduleHide();
+      return KeyEventResult.ignored;
+    }
+
     if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.channelUp) {
       if (_isLive && !_overlay) {
         _previous();
         return KeyEventResult.handled;
       }
+      if (!_overlay) {
+        _showOverlay();
+        return KeyEventResult.handled;
+      }
     } else if (key == LogicalKeyboardKey.arrowDown || key == LogicalKeyboardKey.channelDown) {
       if (_isLive && !_overlay) {
         _next();
+        return KeyEventResult.handled;
+      }
+      if (!_overlay) {
+        _showOverlay();
         return KeyEventResult.handled;
       }
     } else if ((key == LogicalKeyboardKey.select || key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.gameButtonA) && !_overlay) {
@@ -494,7 +594,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 AnimatedOpacity(
                   opacity: _overlay ? 1 : 0,
                   duration: const Duration(milliseconds: 200),
-                  child: IgnorePointer(ignoring: !_overlay, child: _buildOverlay(context, l10n, settings)),
+                  child: IgnorePointer(
+                    ignoring: !_overlay,
+                    // Invisible controls must not catch the D-pad.
+                    child: ExcludeFocus(excluding: !_overlay, child: _buildOverlay(context, l10n, settings)),
+                  ),
                 ),
                 if (_showList) _buildList(context),
               ],
@@ -569,6 +673,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               if (_isLive && item.epgChannelId != null) _EpgLine(epgChannelId: item.epgChannelId!, use24h: settings.use24hClock),
               if (!_isLive)
                 _ProgressBar(
+                  focusNode: _progressFocus,
                   position: _position,
                   duration: _duration,
                   onScrub: (t) {
@@ -580,6 +685,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     _pendingSeek.value = Duration.zero;
                     _commitSeek();
                   },
+                  onFocus: _scheduleHide,
                 ),
               const SizedBox(height: 10),
               Row(
@@ -607,6 +713,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       ValueListenableBuilder<bool>(
                         valueListenable: _playing,
                         builder: (_, playing, _) => IconButton(
+                          focusNode: _playFocus,
                           autofocus: true,
                           iconSize: 34,
                           icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
@@ -756,14 +863,24 @@ class _ControlPill extends StatelessWidget {
   }
 }
 
-/// Thin scrubber (thickens while dragging) driven by notifiers: repaints ~10×/s without
-/// rebuilding the whole player.
+/// Thin scrubber (thickens while dragging or focused) driven by notifiers: repaints ~10×/s
+/// without rebuilding the whole player. Focusable so the D-pad can land on it; left/right are
+/// handled by the screen (accelerating seek) while it has focus.
 class _ProgressBar extends StatefulWidget {
-  const _ProgressBar({required this.position, required this.duration, required this.onScrub, required this.onScrubEnd});
+  const _ProgressBar({
+    required this.focusNode,
+    required this.position,
+    required this.duration,
+    required this.onScrub,
+    required this.onScrubEnd,
+    this.onFocus,
+  });
+  final FocusNode focusNode;
   final ValueNotifier<Duration> position;
   final ValueNotifier<Duration> duration;
   final ValueChanged<Duration> onScrub;
   final ValueChanged<Duration> onScrubEnd;
+  final VoidCallback? onFocus;
 
   @override
   State<_ProgressBar> createState() => _ProgressBarState();
@@ -771,6 +888,7 @@ class _ProgressBar extends StatefulWidget {
 
 class _ProgressBarState extends State<_ProgressBar> {
   bool _dragging = false;
+  bool _focused = false;
 
   Duration _at(double dx, double width) {
     final total = widget.duration.value.inMilliseconds;
@@ -780,28 +898,35 @@ class _ProgressBarState extends State<_ProgressBar> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, c) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: (d) => setState(() => _dragging = true),
-        onHorizontalDragUpdate: (d) => widget.onScrub(_at(d.localPosition.dx, c.maxWidth)),
-        onHorizontalDragEnd: (_) {
-          setState(() => _dragging = false);
-          widget.onScrubEnd(widget.position.value);
-        },
-        onTapUp: (d) => widget.onScrubEnd(_at(d.localPosition.dx, c.maxWidth)),
-        child: SizedBox(
-          height: 28,
-          width: double.infinity,
-          child: ValueListenableBuilder<Duration>(
-            valueListenable: widget.duration,
-            builder: (context, dur, _) => ValueListenableBuilder<Duration>(
-              valueListenable: widget.position,
-              builder: (context, pos, _) {
-                final total = dur.inMilliseconds;
-                final value = total > 0 ? (pos.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
-                return CustomPaint(painter: _BarPainter(value: value, thick: _dragging));
-              },
+    return Focus(
+      focusNode: widget.focusNode,
+      onFocusChange: (f) {
+        setState(() => _focused = f);
+        if (f) widget.onFocus?.call();
+      },
+      child: LayoutBuilder(
+        builder: (context, c) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (d) => setState(() => _dragging = true),
+          onHorizontalDragUpdate: (d) => widget.onScrub(_at(d.localPosition.dx, c.maxWidth)),
+          onHorizontalDragEnd: (_) {
+            setState(() => _dragging = false);
+            widget.onScrubEnd(widget.position.value);
+          },
+          onTapUp: (d) => widget.onScrubEnd(_at(d.localPosition.dx, c.maxWidth)),
+          child: SizedBox(
+            height: 28,
+            width: double.infinity,
+            child: ValueListenableBuilder<Duration>(
+              valueListenable: widget.duration,
+              builder: (context, dur, _) => ValueListenableBuilder<Duration>(
+                valueListenable: widget.position,
+                builder: (context, pos, _) {
+                  final total = dur.inMilliseconds;
+                  final value = total > 0 ? (pos.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
+                  return CustomPaint(painter: _BarPainter(value: value, thick: _dragging || _focused, focused: _focused));
+                },
+              ),
             ),
           ),
         ),
@@ -811,9 +936,10 @@ class _ProgressBarState extends State<_ProgressBar> {
 }
 
 class _BarPainter extends CustomPainter {
-  const _BarPainter({required this.value, required this.thick});
+  const _BarPainter({required this.value, required this.thick, this.focused = false});
   final double value;
   final bool thick;
+  final bool focused;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -825,11 +951,16 @@ class _BarPainter extends CustomPainter {
     if (w > 0) {
       canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0, y - h / 2, w, h), Radius.circular(h / 2)), Paint()..color = Colors.white);
     }
+    if (focused) {
+      // Halo + accent ring: the D-pad is on the bar, left/right will scrub.
+      canvas.drawCircle(Offset(w, y), 16, Paint()..color = const Color(0x4D0A84FF));
+      canvas.drawCircle(Offset(w, y), 11, Paint()..color = const Color(0xFF0A84FF));
+    }
     canvas.drawCircle(Offset(w, y), thick ? 9 : 6, Paint()..color = Colors.white);
   }
 
   @override
-  bool shouldRepaint(_BarPainter old) => old.value != value || old.thick != thick;
+  bool shouldRepaint(_BarPainter old) => old.value != value || old.thick != thick || old.focused != focused;
 }
 
 /// Centered "+45 s → 01:12:30" feedback while taps accumulate.

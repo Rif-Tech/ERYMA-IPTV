@@ -44,11 +44,6 @@ export default async function HomePage() {
           </div>
         ))}
       </section>
-
-      <p className="text-center text-xs text-white/40">
-        Ancien appareil identifié par adresse MAC ? <Link href="/manage-playlists/login" className="underline hover:text-white">Gérer ses playlists</Link>{" "}
-        ou reliez-le à votre compte depuis l&apos;écran d&apos;appairage de l&apos;application.
-      </p>
     </div>
   );
 }

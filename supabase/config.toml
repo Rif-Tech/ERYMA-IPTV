@@ -39,21 +39,9 @@ enable_confirmations = true
 enabled = true
 policy = "per_worker"
 
-# Device-facing functions authenticate with the install secret (or legacy MAC + device key),
+# Device-facing functions authenticate with the install secret (x-device-id / x-device-secret),
 # not a Supabase JWT; pairing-confirm verifies the user's JWT itself.
-[functions.device-register]
-verify_jwt = false
-
-[functions.device-playlists]
-verify_jwt = false
-
 [functions.app-info]
-verify_jwt = false
-
-[functions.portal-login]
-verify_jwt = false
-
-[functions.portal-playlists]
 verify_jwt = false
 
 [functions.featured]

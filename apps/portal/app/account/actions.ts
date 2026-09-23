@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase";
-import type { ActionState } from "../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 
 async function owner() {
   const ctx = await requireUser();

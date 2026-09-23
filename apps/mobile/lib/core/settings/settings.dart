@@ -15,14 +15,20 @@ enum SortOrder { defaultOrder, az, za, added, rating }
 enum VideoFit { contain, cover, fill }
 
 /// Android video path. `direct` decodes straight into the surface (mediacodec_embed), which is
-/// what low-end TV boxes need; `compat` keeps mpv's GPU renderer with software fallback.
-enum VideoDecoder { auto, direct, compat }
+/// what low-end TV boxes need; `compat` keeps mpv's GPU renderer with hardware decoding through a
+/// copy; `software` decodes on the CPU. `auto` tries them in that order and remembers failures.
+enum VideoDecoder { auto, direct, compat, software }
 
 /// Lighter visuals (no blur/shimmer, shorter fades, smaller caches) for weak hardware.
 enum PerformanceMode { auto, on, off }
 
 /// Where the home hero ("À la une") takes its content from.
 enum FeaturedSource { curated, popular, tmdb }
+
+/// How the app resolves hostnames for playlists/streams. `system` = device default; `auto` probes
+/// the active playlist host through every enabled server and keeps the fastest; `server` pins one
+/// admin-provided DNS; `custom` uses user-entered resolver addresses.
+enum DnsMode { system, auto, server, custom }
 
 @immutable
 class AppSettings {
@@ -44,6 +50,9 @@ class AppSettings {
     this.parentalPin,
     this.activePlaylistId,
     this.activeProfileId,
+    this.dnsMode = DnsMode.system,
+    this.dnsServerId,
+    this.dnsCustomAddresses,
   });
 
   final Locale? locale;
@@ -65,6 +74,14 @@ class AppSettings {
 
   /// Viewer profile (server id) whose history/favourites are shown; null until picked.
   final String? activeProfileId;
+
+  final DnsMode dnsMode;
+
+  /// Admin `dns_servers.id` selected when [dnsMode] is `server`.
+  final String? dnsServerId;
+
+  /// Comma-separated resolver IPs entered by the user when [dnsMode] is `custom`.
+  final String? dnsCustomAddresses;
 
   bool get hasParentalPin => parentalPin != null && parentalPin!.isNotEmpty;
 
@@ -90,6 +107,11 @@ class AppSettings {
     bool clearActivePlaylist = false,
     String? activeProfileId,
     bool clearActiveProfile = false,
+    DnsMode? dnsMode,
+    String? dnsServerId,
+    bool clearDnsServerId = false,
+    String? dnsCustomAddresses,
+    bool clearDnsCustomAddresses = false,
   }) =>
       AppSettings(
         locale: clearLocale ? null : (locale ?? this.locale),
@@ -109,6 +131,9 @@ class AppSettings {
         parentalPin: clearParentalPin ? null : (parentalPin ?? this.parentalPin),
         activePlaylistId: clearActivePlaylist ? null : (activePlaylistId ?? this.activePlaylistId),
         activeProfileId: clearActiveProfile ? null : (activeProfileId ?? this.activeProfileId),
+        dnsMode: dnsMode ?? this.dnsMode,
+        dnsServerId: clearDnsServerId ? null : (dnsServerId ?? this.dnsServerId),
+        dnsCustomAddresses: clearDnsCustomAddresses ? null : (dnsCustomAddresses ?? this.dnsCustomAddresses),
       );
 }
 
@@ -147,6 +172,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
       parentalPin: _prefs.getString('parentalPin'),
       activePlaylistId: _prefs.getString('activePlaylistId'),
       activeProfileId: _prefs.getString('activeProfileId'),
+      dnsMode: enumOf(DnsMode.values, 'dnsMode', DnsMode.system),
+      dnsServerId: _prefs.getString('dnsServerId'),
+      dnsCustomAddresses: _prefs.getString('dnsCustomAddresses'),
     );
   }
 
@@ -175,6 +203,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
       update(state.copyWith(activePlaylistId: id, clearActivePlaylist: id == null));
   Future<void> setActiveProfileId(String? id) =>
       update(state.copyWith(activeProfileId: id, clearActiveProfile: id == null));
+
+  Future<void> setDnsMode(DnsMode m) => update(state.copyWith(dnsMode: m));
+  Future<void> setDnsServerId(String? id) => update(state.copyWith(dnsServerId: id, clearDnsServerId: id == null));
+  Future<void> setDnsCustomAddresses(String? csv) =>
+      update(state.copyWith(dnsCustomAddresses: csv, clearDnsCustomAddresses: csv == null || csv.isEmpty));
 
   Future<void> _persist(AppSettings s) async {
     Future<void> put(String key, Object? value) async {
@@ -208,6 +241,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await put('parentalPin', s.parentalPin);
     await put('activePlaylistId', s.activePlaylistId);
     await put('activeProfileId', s.activeProfileId);
+    await put('dnsMode', s.dnsMode.name);
+    await put('dnsServerId', s.dnsServerId);
+    await put('dnsCustomAddresses', s.dnsCustomAddresses);
   }
 }
 

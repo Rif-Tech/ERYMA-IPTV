@@ -450,6 +450,8 @@ class _ChannelList extends ConsumerWidget {
     final locked = ref.watch(lockedChannelsProvider(playlistId)).value ?? const {};
     final favs = ref.watch(favoriteIdsProvider(CategoryQuery(playlistId, ContentKind.live))).value ?? const {};
     final use24h = ref.watch(settingsProvider.select((s) => s.use24hClock));
+    // The channel last played on this profile gets the "playing" marker so the user knows where they are.
+    final lastPlayed = ref.watch(historyProvider(CategoryQuery(playlistId, ContentKind.live)).select((h) => h.value?.firstOrNull?.itemId));
 
     return FocusTraversalGroup(
       child: ListView.builder(
@@ -469,6 +471,7 @@ class _ChannelList extends ConsumerWidget {
               use24h: use24h,
               locked: locked.contains(c.streamId),
               favorite: favs.contains(c.streamId),
+              playing: c.streamId == lastPlayed,
               onTap: () => playChannels(context, ref, channels, i),
               onLongPress: () => showChannelMenu(context, ref, playlistId, c),
               onFocus: form.isMobile ? null : () => ref.read(_focusedChannelProvider.notifier).set(c),
@@ -487,6 +490,7 @@ class _ChannelRow extends ConsumerWidget {
     required this.use24h,
     required this.locked,
     required this.favorite,
+    this.playing = false,
     required this.onTap,
     required this.onLongPress,
     this.onFocus,
@@ -496,6 +500,7 @@ class _ChannelRow extends ConsumerWidget {
   final bool use24h;
   final bool locked;
   final bool favorite;
+  final bool playing;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback? onFocus;
@@ -523,6 +528,7 @@ class _ChannelRow extends ConsumerWidget {
       progress: progress,
       locked: locked,
       favorite: favorite,
+      selected: playing,
       onTap: onTap,
       onLongPress: onLongPress,
       onFocus: onFocus,

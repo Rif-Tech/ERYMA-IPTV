@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { ActionState } from "../../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 import { deleteProfileAction, saveProfileAction } from "../actions";
 
 export const AVATARS = ["blue", "red", "green", "orange", "purple", "pink", "teal", "yellow"] as const;

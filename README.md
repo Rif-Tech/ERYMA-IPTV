@@ -18,7 +18,7 @@ docs            Analyse de l'application d'origine, API
 5. Depuis `/account`, l'utilisateur renomme, déconnecte ou supprime ses appareils ; un appareil révoqué revient à l'écran d'appairage et perd les listes du compte. L'administrateur (`/admin`, `/admin/accounts`) gère les formules, statuts et expirations.
 6. Le carrousel « À la une » de l'accueil est piloté par l'administrateur (`/admin/featured`, films/séries par ID TMDB ou bannières libres) ; l'utilisateur peut aussi choisir « les plus regardés » ou les tendances TMDB. Un film/série n'apparaît que s'il existe dans ses playlists.
 
-Les anciennes installations (identité MAC + clé) continuent de fonctionner : lors de l'appairage, leurs playlists et leur activation sont reprises par le compte. Le portail legacy `/manage-playlists` reste disponible pendant la transition.
+L'identité d'un appareil est uniquement son couple `device_uuid` + secret : il n'existe plus d'adresse MAC, de clé appareil ni d'activation par appareil ([supabase/migrations/20260923000000_drop_legacy.sql](supabase/migrations/20260923000000_drop_legacy.sql)).
 
 L'application ne fournit aucun contenu : elle lit uniquement les sources fournies par l'utilisateur.
 
@@ -26,11 +26,11 @@ L'application ne fournit aucun contenu : elle lit uniquement les sources fournie
 
 Le backend est déployé sur Supabase cloud (`https://zeproepijcixdmszlkmf.supabase.co`) : schéma via [supabase/migrations](supabase/migrations), fonctions via [supabase/functions](supabase/functions). Test rapide : `.\scripts\smoke-test.ps1`.
 
-Secrets Edge Functions à définir (Dashboard → Edge Functions → Secrets ou `npx supabase secrets set`) : `TMDB_API_KEY` (recherche/visuels TMDB), `PORTAL_URL` (URL publique du portail, embarquée dans les QR codes d'appairage) et, en production, `PORTAL_TOKEN_SECRET`.
+Secrets Edge Functions à définir (Dashboard → Edge Functions → Secrets ou `npx supabase secrets set`) : `TMDB_API_KEY` (recherche/visuels TMDB), `PORTAL_URL` (URL publique du portail, embarquée dans les QR codes d'appairage).
 
 ### Déploiement du modèle comptes
 
-1. **Base** : `npx supabase db push` (ou MCP `apply_migration`) applique [supabase/migrations/20260922000000_accounts.sql](supabase/migrations/20260922000000_accounts.sql) — additif et non destructif : nouvelles tables `plans`, `accounts`, `subscriptions`, `viewer_profiles`, `profile_playlists`, `pairing_sessions`, `watch_progress` ; colonnes ajoutées sur `devices`/`playlists` (MAC/clé deviennent optionnels) ; vues `devices_with_status` (statut legacy dans `status_legacy`) et `accounts_overview` ; fonctions `confirm_pairing`, `set_device_context`, `account_status`, `ensure_account` ; RLS propriétaire (`auth.uid() = account_id`) + admin. Les utilisateurs existants reçoivent automatiquement un compte, un profil par défaut et un abonnement d'essai.
+1. **Base** : `npx supabase db push` (ou MCP `apply_migration`) applique [supabase/migrations/20260922000000_accounts.sql](supabase/migrations/20260922000000_accounts.sql) — tables `plans`, `accounts`, `subscriptions`, `viewer_profiles`, `profile_playlists`, `pairing_sessions`, `watch_progress` ; vues `devices_with_status` et `accounts_overview` ; fonctions `confirm_pairing`, `set_device_context`, `account_status`, `ensure_account` ; RLS propriétaire (`auth.uid() = account_id`) + admin — puis [20260923000000_drop_legacy.sql](supabase/migrations/20260923000000_drop_legacy.sql) qui supprime les colonnes MAC/clé/activation par appareil et les playlists sans compte. Les utilisateurs existants reçoivent automatiquement un compte, un profil par défaut et un abonnement d'essai.
 2. **Auth** : Dashboard → Authentication : activer l'inscription e-mail (avec confirmation), ajouter `https://<portail>/auth/callback` aux Redirect URLs (voir `supabase/config.toml` pour le local).
 3. **Fonctions** : `.\scripts\deploy-functions.ps1` (après `npx supabase login` + `link`) déploie toutes les fonctions avec `--no-verify-jwt` pour celles côté appareil.
 4. **URL publique du portail** : `/admin/config` → « URL publique du portail » (ex. `http://100.88.208.52:3000` sur le LAN, `https://…` en prod). C'est cette adresse que les appareils affichent et encodent dans le QR code d'appairage (jamais `localhost`). À défaut, le secret `PORTAL_URL` des fonctions est utilisé, puis le `--dart-define=PORTAL_URL` de l'APK.

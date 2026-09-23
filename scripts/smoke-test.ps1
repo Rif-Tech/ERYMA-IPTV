@@ -1,11 +1,17 @@
-# Smoke test for the deployed Edge Functions. Usage: .\scripts\smoke-test.ps1 [-BaseUrl https://<ref>.supabase.co/functions/v1]
+# Smoke test for the deployed Edge Functions (account / pairing model).
+# Usage: .\scripts\smoke-test.ps1 [-BaseUrl https://<ref>.supabase.co/functions/v1] [-AnonKey <publishable key>]
+#        [-DeviceUuid <uuid> -DeviceSecret <secret>]   # optional: a paired install to exercise device-session
 param(
   [string]$BaseUrl = 'https://zeproepijcixdmszlkmf.supabase.co/functions/v1',
-  [string]$Mac = '02:11:22:33:44:55',
-  [string]$Key = 'TEST01'
+  [string]$AnonKey = $(
+    $env = Join-Path (Split-Path $PSScriptRoot -Parent) 'apps\portal\.env.local'
+    if (Test-Path $env) { ((Get-Content $env | Where-Object { $_ -like 'NEXT_PUBLIC_SUPABASE_ANON_KEY=*' }) -split '=', 2)[1].Trim() } else { '' }
+  ),
+  [string]$DeviceUuid,
+  [string]$DeviceSecret
 )
 $ErrorActionPreference = 'Stop'
-$json = @{ 'Content-Type' = 'application/json' }
+$json = @{ 'Content-Type' = 'application/json'; apikey = $AnonKey; Authorization = "Bearer $AnonKey" }
 
 function Step($name, $block) {
   try { $out = & $block; Write-Host "[OK]   $name -> $out" } catch { Write-Host "[FAIL] $name -> $($_.Exception.Message)"; }
@@ -18,32 +24,39 @@ function ExpectStatus($code, $block) {
   }
 }
 
-Step 'app-info' { (Invoke-RestMethod "$BaseUrl/app-info").app_status }
-Step 'device-register' {
-  $body = @{ mac = $Mac; device_key = $Key; device_type = 'tv'; platform = 'android'; app_version = '1.0.0' } | ConvertTo-Json
-  $r = Invoke-RestMethod "$BaseUrl/device-register" -Method Post -Headers $json -Body $body
-  "is_trial=$($r.is_trial) expired=$($r.expired)"
+Step 'app-info' { $r = Invoke-RestMethod "$BaseUrl/app-info" -Headers $json; "status=$($r.app_status) portal_url=$($r.portal_url)" }
+
+# A throw-away install: pairing-create must hand out a code + QR URL without any account.
+$uuid = [guid]::NewGuid().ToString()
+$secret = 'smoke-' + [guid]::NewGuid().ToString('N')
+$hash = ([System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($secret)) | ForEach-Object { $_.ToString('x2') }) -join ''
+$ticket = $null
+Step 'pairing-create (device)' {
+  $body = @{ kind = 'device'; device_uuid = $uuid; secret_hash = $hash; device_type = 'tv'; platform = 'android'; app_version = 'smoke' } | ConvertTo-Json
+  $script:ticket = Invoke-RestMethod "$BaseUrl/pairing-create" -Method Post -Headers $json -Body $body
+  "code=$($ticket.code) url=$($ticket.url)"
 }
-Step 'device-register wrong key -> 409' { ExpectStatus 409 { Invoke-RestMethod "$BaseUrl/device-register" -Method Post -Headers $json -Body (@{ mac = $Mac; device_key = 'WRONG1' } | ConvertTo-Json) } }
-$token = $null
-Step 'portal-login' {
-  $r = Invoke-RestMethod "$BaseUrl/portal-login" -Method Post -Headers $json -Body (@{ mac = $Mac; device_key = $Key } | ConvertTo-Json)
-  $script:token = $r.token; "token length=$($r.token.Length)"
+Step 'pairing-status pending' {
+  $r = Invoke-RestMethod "$BaseUrl/pairing-status?session_id=$($ticket.session_id)&token=$($ticket.token)" -Headers $json
+  $r.status
 }
-$auth = @{ 'Content-Type' = 'application/json'; 'x-portal-token' = $token }
-$playlistId = $null
-Step 'portal-playlists POST' {
-  $r = Invoke-RestMethod "$BaseUrl/portal-playlists" -Method Post -Headers $auth -Body (@{ name = 'Test M3U'; type = 'm3u'; url = 'https://iptv-org.github.io/iptv/index.m3u' } | ConvertTo-Json)
-  $script:playlistId = $r.playlist.id; $r.playlist.id
+Step 'pairing-status bad token -> 404/401' {
+  try { Invoke-RestMethod "$BaseUrl/pairing-status?session_id=$($ticket.session_id)&token=nope" -Headers $json | Out-Null; throw 'expected error' }
+  catch { $got = $_.Exception.Response.StatusCode.value__; if ($got -notin 401, 404) { throw "got $got" }; "HTTP $got" }
 }
-Step 'portal-playlists POST invalid -> 400' { ExpectStatus 400 { Invoke-RestMethod "$BaseUrl/portal-playlists" -Method Post -Headers $auth -Body (@{ name = 'x'; type = 'xtream'; url = 'http://h' } | ConvertTo-Json) } }
-Step 'device-playlists GET' {
-  $r = Invoke-RestMethod "$BaseUrl/device-playlists?mac=$Mac&key=$Key"
-  "count=$($r.playlists.Count) first=$($r.playlists[0].name)"
+Step 'device-session unpaired -> 401' {
+  ExpectStatus 401 { Invoke-RestMethod "$BaseUrl/device-session" -Headers ($json + @{ 'x-device-id' = $uuid; 'x-device-secret' = $secret }) }
 }
-Step 'portal-playlists PUT' {
-  $r = Invoke-RestMethod "$BaseUrl/portal-playlists" -Method Put -Headers $auth -Body (@{ id = $playlistId; name = 'Renamed' } | ConvertTo-Json)
-  $r.playlist.name
+Step 'featured without identity -> 401' { ExpectStatus 401 { Invoke-RestMethod "$BaseUrl/featured?mode=curated" -Headers $json } }
+Step 'pairing-confirm without session -> 401' {
+  ExpectStatus 401 { Invoke-RestMethod "$BaseUrl/pairing-confirm?code=$($ticket.code)" -Headers $json }
 }
-Step 'portal-playlists DELETE' { (Invoke-RestMethod "$BaseUrl/portal-playlists" -Method Delete -Headers $auth -Body (@{ id = $playlistId } | ConvertTo-Json)).ok }
-Step 'portal-playlists bad token -> 401' { ExpectStatus 401 { Invoke-RestMethod "$BaseUrl/portal-playlists" -Headers @{ 'x-portal-token' = 'abc.def' } } }
+
+if ($DeviceUuid -and $DeviceSecret) {
+  $dev = $json + @{ 'x-device-id' = $DeviceUuid; 'x-device-secret' = $DeviceSecret }
+  Step 'device-session (paired install)' {
+    $r = Invoke-RestMethod "$BaseUrl/device-session" -Headers $dev
+    "device=$($r.device.name) plan=$($r.account.plan) profiles=$($r.profiles.Count) playlists=$($r.playlists.Count)"
+  }
+  Step 'featured (paired install)' { (Invoke-RestMethod "$BaseUrl/featured?mode=curated&lang=fr-FR" -Headers $dev).items.Count }
+}

@@ -166,12 +166,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get deviceInfo => 'Informations appareil';
 
   @override
-  String get macAddress => 'Adresse MAC';
-
-  @override
-  String get deviceKey => 'Clé appareil';
-
-  @override
   String get deviceType => 'Type d\'appareil';
 
   @override
@@ -181,18 +175,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get portalUrl => 'Portail';
 
   @override
-  String get scanQr =>
-      'Scannez le QR code pour ajouter une playlist depuis le portail web.';
-
-  @override
-  String get scanQrManage =>
-      'Scannez ce QR code pour ajouter, modifier ou supprimer vos playlists depuis le portail web.';
-
-  @override
-  String get managePlaylistsOnline => 'Gérer mes playlists sur le web';
-
-  @override
-  String get openPortal => 'Ouvrir le portail';
+  String get managePlaylistsOnline => 'Gérer mon compte sur le web';
 
   @override
   String trialDaysLeft(int days) {
@@ -228,10 +211,6 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get portalUnreachable =>
       'Portail injoignable. Les playlists locales restent disponibles.';
-
-  @override
-  String get deviceKeyConflict =>
-      'Cette adresse MAC est déjà enregistrée avec une autre clé appareil. Demandez à l\'administrateur de supprimer l\'appareil sur le portail, puis relancez l\'application.';
 
   @override
   String get pairTitle => 'Connectez cet appareil à votre compte';
@@ -655,13 +634,17 @@ class AppLocalizationsFr extends AppLocalizations {
   String get videoDecoder => 'Décodage vidéo';
 
   @override
-  String get decoderAuto => 'Automatique (direct sur TV)';
+  String get decoderAuto =>
+      'Automatique (essaie direct, puis matériel, puis logiciel)';
 
   @override
   String get decoderDirect => 'Matériel direct — le plus fluide';
 
   @override
-  String get decoderCompat => 'Compatibilité — plus lent';
+  String get decoderCompat => 'Matériel (copie) — compatible';
+
+  @override
+  String get decoderSoftware => 'Logiciel — fonctionne partout, plus lent';
 
   @override
   String get performanceMode => 'Mode performance';
@@ -674,6 +657,43 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get performanceOff => 'Désactivé — visuels complets';
+
+  @override
+  String get networkDns => 'Réseau / DNS';
+
+  @override
+  String get dnsMode => 'DNS';
+
+  @override
+  String get dnsModeSystem => 'Système (celui de l\'appareil)';
+
+  @override
+  String get dnsModeAuto => 'Automatique — choisit le plus rapide';
+
+  @override
+  String get dnsModeServer => 'Choisir un serveur';
+
+  @override
+  String get dnsModeCustom => 'Personnalisé';
+
+  @override
+  String get dnsServer => 'Serveur DNS';
+
+  @override
+  String get dnsCustomAddresses => 'Adresses DNS personnalisées';
+
+  @override
+  String get dnsCustomAddressesHint => 'ex. 1.1.1.1, 1.0.0.1';
+
+  @override
+  String get dnsTest => 'Tester le DNS';
+
+  @override
+  String get dnsTestHint =>
+      'Vérifie quel DNS permet de joindre le serveur de votre liste';
+
+  @override
+  String get dnsTestNoPlaylist => 'Aucune liste de lecture active à tester.';
 
   @override
   String get clearCache => 'Vider le cache';

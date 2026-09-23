@@ -8,7 +8,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $ref = 'zeproepijcixdmszlkmf'
 
 $noJwt = @(
-  'device-register', 'device-playlists', 'app-info', 'portal-login', 'portal-playlists',
+  'app-info',
   'featured', 'tmdb', 'watch-events',
   'pairing-create', 'pairing-status', 'pairing-confirm', 'device-session', 'device-context', 'device-progress'
 )

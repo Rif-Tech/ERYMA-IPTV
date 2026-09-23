@@ -1,5 +1,5 @@
 // POST /watch-events {kind: movie|tv|live, title_key, title, year?, tmdb_id?}
-// Auth: install headers (x-device-id/x-device-secret) or legacy {mac, key}.
+// Auth: install headers (x-device-id/x-device-secret).
 // Anonymous playback statistics used for the "most watched right now" hero source.
 
 import { adminClient, HttpError, json, readJson, requireString, serve } from "../_shared/http.ts";

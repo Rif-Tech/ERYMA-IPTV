@@ -31,24 +31,36 @@ class PlayableItem {
   final bool tvArchive;
 }
 
+/// How mpv decodes and renders video on Android, from fastest to most compatible.
+enum DecodePath {
+  /// `vo=mediacodec_embed` + `hwdec=mediacodec`: frames go straight to the surface. Needs a
+  /// MediaCodec that accepts the stream; no copy, no shader, ideal for weak boxes.
+  direct,
+
+  /// `vo=gpu` + `hwdec=mediacodec-copy`: hardware decoding, frames copied through the GPU.
+  hardware,
+
+  /// `vo=gpu` + `hwdec=no`: CPU decoding, works everywhere but slow above 720p on old SoCs.
+  software,
+}
+
 @immutable
 class PlaybackRequest {
-  const PlaybackRequest({required this.items, this.startIndex = 0, this.startPositionMs, this.forceCompat = false});
+  const PlaybackRequest({required this.items, this.startIndex = 0, this.startPositionMs, this.decodePath});
   final List<PlayableItem> items;
   final int startIndex;
   final int? startPositionMs;
 
-  /// Use mpv's GPU renderer with software fallback even where direct decoding is the default
-  /// (set when the hardware decoder refused the stream).
-  final bool forceCompat;
+  /// Forced decode path (set when the player restarts after a failed attempt); null = settings.
+  final DecodePath? decodePath;
 
   PlayableItem get current => items[startIndex];
 
-  PlaybackRequest copyWith({int? startIndex, int? startPositionMs, bool? forceCompat}) => PlaybackRequest(
+  PlaybackRequest copyWith({int? startIndex, int? startPositionMs, DecodePath? decodePath}) => PlaybackRequest(
         items: items,
         startIndex: startIndex ?? this.startIndex,
         startPositionMs: startPositionMs ?? this.startPositionMs,
-        forceCompat: forceCompat ?? this.forceCompat,
+        decodePath: decodePath ?? this.decodePath,
       );
 }
 

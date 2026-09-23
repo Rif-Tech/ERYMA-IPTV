@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServer } from "@/lib/supabase";
-import type { ActionState } from "../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 
 /** Only relative paths are accepted as post-login destinations (no open redirect). */
 function safeNext(raw: unknown): string {

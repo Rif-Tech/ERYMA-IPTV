@@ -63,9 +63,13 @@ class HomeScreen extends ConsumerWidget {
             SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: false)),
             SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: true)),
             SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(context.tokens.pageGutter, 28, context.tokens.pageGutter, 32 + MediaQuery.paddingOf(context).bottom),
-                child: _Footer(playlist: playlist, expires: exp, account: account, use24h: settings.use24hClock),
+              child: _Footer(
+                playlist: playlist,
+                expires: exp,
+                account: account,
+                use24h: settings.use24hClock,
+                // Generous bottom room: TV overscan and the focus-scroll of the last shelf must never clip it.
+                padding: EdgeInsets.fromLTRB(context.tokens.pageGutter, 28, context.tokens.pageGutter, 72 + MediaQuery.paddingOf(context).bottom),
               ),
             ),
           ],
@@ -149,34 +153,47 @@ class _QuickLinks extends ConsumerWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({required this.playlist, required this.expires, required this.account, required this.use24h});
+  const _Footer({required this.playlist, required this.expires, required this.account, required this.use24h, required this.padding});
   final Playlist playlist;
   final DateTime? expires;
   final Map<String, String?> account;
   final bool use24h;
+  final EdgeInsets padding;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final text = Theme.of(context).textTheme;
     final t = context.tokens;
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(playlist.name, style: text.titleSmall),
-              if (expires != null) Text(l10n.accountExpires(formatDate(context, expires!)), style: text.bodySmall?.copyWith(color: t.textFaint)),
-              if (account['max_connections'] != null)
-                Text(l10n.activeConnections(account['active_cons'] ?? '?', account['max_connections']!), style: text.bodySmall?.copyWith(color: t.textFaint)),
-            ],
-          ),
+    return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      // When the button below gains focus, bring the whole padded footer (not just the button) into
+      // view so the last lines are never hidden behind the TV's overscan.
+      onFocusChange: (f) {
+        if (f) Scrollable.ensureVisible(context, alignment: 1, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+      },
+      child: Padding(
+        padding: padding,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(playlist.name, style: text.titleSmall),
+                  if (expires != null) Text(l10n.accountExpires(formatDate(context, expires!)), style: text.bodySmall?.copyWith(color: t.textFaint)),
+                  if (account['max_connections'] != null)
+                    Text(l10n.activeConnections(account['active_cons'] ?? '?', account['max_connections']!), style: text.bodySmall?.copyWith(color: t.textFaint)),
+                ],
+              ),
+            ),
+            _Clock(use24h: use24h),
+            const SizedBox(width: 8),
+            PillButton(compact: true, icon: Icons.playlist_play_rounded, label: l10n.changePlaylist, onPressed: () => context.push(Routes.playlists)),
+          ],
         ),
-        _Clock(use24h: use24h),
-        const SizedBox(width: 8),
-        PillButton(compact: true, icon: Icons.playlist_play_rounded, label: l10n.changePlaylist, onPressed: () => context.push(Routes.playlists)),
-      ],
+      ),
     );
   }
 }

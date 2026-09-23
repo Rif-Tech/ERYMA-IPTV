@@ -1,14 +1,12 @@
 // Starts a pairing session for an installation (TV, phone, tablet).
 //   POST /pairing-create
 //     { kind: "device" | "playlist", device_uuid, secret_hash?, device_type, platform, app_version,
-//       manufacturer?, model?, os?, os_version?, name?,
-//       device_secret? (required when the install is already paired),
-//       mac?, device_key? (legacy install: its row and playlists are reused) }
+//       manufacturer?, model?, os?, os_version?, name? }
+//     Header x-device-secret (or body device_secret) is required when the install is already paired.
 //   → { session_id, code, token, expires_at, url }
 // The QR encodes `url` (a temporary single-use token); the secret itself never leaves the device.
 
 import {
-  authenticateDevice,
   DEVICE_UUID_RE,
   type DeviceRow,
   randomCode,
@@ -50,16 +48,6 @@ serve(async (req) => {
   const { data: found, error } = await db.from("devices").select("*").eq("device_uuid", uuid).maybeSingle();
   if (error) throw new HttpError(500, error.message);
   let device = found as DeviceRow | null;
-
-  if (!device && body.mac && (body.device_key ?? body.key)) {
-    // Legacy install upgrading: keep its row so its playlists follow it into the account.
-    try {
-      const legacy = await authenticateDevice(db, body.mac, body.device_key ?? body.key);
-      if (!legacy.device_uuid) device = legacy;
-    } catch {
-      // Unknown or mismatched MAC: start fresh below.
-    }
-  }
 
   if (device) {
     // A paired install must prove it is the same device before it can be re-paired or add playlists.

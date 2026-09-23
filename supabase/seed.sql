@@ -18,15 +18,6 @@ insert into auth.users (
 
 update public.profiles set role = 'admin' where id = '11111111-1111-1111-1111-111111111111';
 
-insert into public.devices (mac, device_key, device_type, platform, app_version, activated)
-values ('02:00:00:AA:BB:CC', 'DEMO42', 'tv', 'android', '1.0.0', true)
-on conflict (mac) do nothing;
-
-insert into public.playlists (device_id, name, type, url)
-select id, 'Demo M3U', 'm3u', 'https://iptv-org.github.io/iptv/index.m3u'
-from public.devices where mac = '02:00:00:AA:BB:CC'
-on conflict do nothing;
-
 -- Demo end user (password "multiptv-user") with an account-owned playlist and two profiles.
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,

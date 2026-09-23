@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/config.dart';
 import '../device/device_identity.dart';
+import '../net/dns_models.dart';
 
 @immutable
 class DeviceStatus {
@@ -268,7 +269,15 @@ class PortalPlaylist {
 
 @immutable
 class AppInfo {
-  const AppInfo({this.latestVersion, this.minVersion, this.apkLink, this.status = 'ok', this.message, this.portalUrl});
+  const AppInfo({
+    this.latestVersion,
+    this.minVersion,
+    this.apkLink,
+    this.status = 'ok',
+    this.message,
+    this.portalUrl,
+    this.dnsServers = const [],
+  });
   final String? latestVersion;
   final String? minVersion;
   final String? apkLink;
@@ -280,6 +289,9 @@ class AppInfo {
   /// Public portal URL configured by the admin (QR codes, instructions).
   final String? portalUrl;
 
+  /// Admin-managed DNS presets (Google, Cloudflare, ...) offered in Réglages → Réseau / DNS.
+  final List<DnsServer> dnsServers;
+
   factory AppInfo.fromJson(Map<String, dynamic> j) => AppInfo(
         latestVersion: j['latest_version'] as String?,
         minVersion: j['min_version'] as String?,
@@ -287,6 +299,8 @@ class AppInfo {
         status: (j['app_status'] ?? 'ok').toString(),
         message: j['message'] as String?,
         portalUrl: (j['portal_url'] as String?)?.trim().isNotEmpty == true ? (j['portal_url'] as String).trim() : null,
+        dnsServers: (j['dns_servers'] as List?)?.whereType<Map>().map((e) => DnsServer.fromJson(e.cast<String, dynamic>())).toList() ??
+            const [],
       );
 
   bool requiresUpdate(String current) => minVersion != null && compareVersions(current, minVersion!) < 0;

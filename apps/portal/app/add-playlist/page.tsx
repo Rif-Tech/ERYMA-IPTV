@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/supabase";
-import { PlaylistForm } from "../manage-playlists/playlist-form";
+import { PlaylistForm } from "../account/playlists/playlist-form";
 import { addPlaylistByCodeAction, normalizeCode, previewPairing } from "../pairing/actions";
 
 /** Playlist pairing: the TV shows a code/QR, the user fills in the provider details here. */

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/config.dart';
 import '../../app/router.dart';
@@ -31,66 +31,82 @@ class AccountCard extends ConsumerWidget {
 
     return GlassPanel(
       padding: const EdgeInsets.all(20),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              if (profile != null) ...[
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: profileColor(profile.avatar), borderRadius: BorderRadius.circular(12)),
-                  child: Text(profile.name.isEmpty ? '?' : profile.name.characters.first.toUpperCase(),
-                      style: theme.textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 14),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(profile?.name ?? l10n.account, style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 2),
-                    session.when(
-                      loading: () => const Padding(padding: EdgeInsets.only(top: 6), child: LinearProgressIndicator(minHeight: 2)),
-                      error: (e, _) => Text(e.toString(), style: TextStyle(color: theme.colorScheme.error)),
-                      data: (s) => _StatusLine(session: s),
+                    if (profile != null) ...[
+                      Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(color: profileColor(profile.avatar), borderRadius: BorderRadius.circular(12)),
+                        child: Text(profile.name.isEmpty ? '?' : profile.name.characters.first.toUpperCase(),
+                            style: theme.textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+                      ),
+                      const SizedBox(width: 14),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(profile?.name ?? l10n.account, style: theme.textTheme.titleMedium),
+                          const SizedBox(height: 2),
+                          session.when(
+                            loading: () => const Padding(padding: EdgeInsets.only(top: 6), child: LinearProgressIndicator(minHeight: 2)),
+                            error: (e, _) => Text(e.toString(), style: TextStyle(color: theme.colorScheme.error)),
+                            data: (s) => _StatusLine(session: s),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (s != null && !s.unpaired) ...[
-            _InfoRow(label: l10n.deviceName, value: s.deviceName ?? device?.hardwareLabel ?? '—'),
-            if (s.status.planName != null) _InfoRow(label: l10n.accountPlan, value: '${s.status.planName} · ${l10n.accountDevices(s.status.maxDevices)}'),
-          ],
-          _InfoRow(label: l10n.appVersion, value: device?.appVersion ?? '—'),
-          _InfoRow(label: l10n.portalUrl, value: host),
-          const SizedBox(height: 6),
-          Text(l10n.accountManageOnline(host), style: theme.textTheme.bodySmall?.copyWith(color: context.tokens.textMuted)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (s != null && s.unpaired)
-                PillButton(compact: true, primary: true, icon: Icons.qr_code_2_rounded, label: l10n.pairDevice, onPressed: () => context.go(Routes.pairing))
-              else ...[
-                if (profiles.length > 1)
-                  PillButton(compact: true, icon: Icons.switch_account_rounded, label: l10n.switchProfile, onPressed: () => context.push(Routes.profiles)),
-                PillButton(
-                  compact: true,
-                  icon: Icons.open_in_browser_rounded,
-                  label: l10n.openPortal,
-                  onPressed: () => launchUrl(Uri.parse(AppConfig.accountUrl), mode: LaunchMode.externalApplication),
+                const SizedBox(height: 14),
+                if (s != null && !s.unpaired) ...[
+                  _InfoRow(label: l10n.deviceName, value: s.deviceName ?? device?.hardwareLabel ?? '—'),
+                  if (s.status.planName != null) _InfoRow(label: l10n.accountPlan, value: '${s.status.planName} · ${l10n.accountDevices(s.status.maxDevices)}'),
+                ],
+                _InfoRow(label: l10n.appVersion, value: device?.appVersion ?? '—'),
+                _InfoRow(label: l10n.portalUrl, value: host),
+                const SizedBox(height: 6),
+                Text(l10n.accountManageOnline(host), style: theme.textTheme.bodySmall?.copyWith(color: context.tokens.textMuted)),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (s != null && s.unpaired)
+                      PillButton(compact: true, primary: true, icon: Icons.qr_code_2_rounded, label: l10n.pairDevice, onPressed: () => context.go(Routes.pairing))
+                    else ...[
+                      if (profiles.length > 1)
+                        PillButton(compact: true, icon: Icons.switch_account_rounded, label: l10n.switchProfile, onPressed: () => context.push(Routes.profiles)),
+                      PillButton(compact: true, icon: Icons.link_off_rounded, label: l10n.unpairDevice, onPressed: () => _unpair(context, ref)),
+                    ],
+                  ],
                 ),
-                PillButton(compact: true, icon: Icons.link_off_rounded, label: l10n.unpairDevice, onPressed: () => _unpair(context, ref)),
               ],
-            ],
+            ),
+          ),
+          // Scan-to-manage: the account area on the phone, no typing on the TV.
+          Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Column(
+              children: [
+                Container(
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.all(8),
+                  child: QrImageView(data: AppConfig.accountUrl, size: 132, errorCorrectionLevel: QrErrorCorrectLevel.M),
+                ),
+                const SizedBox(height: 6),
+                Text(l10n.managePlaylistsOnline, style: theme.textTheme.labelSmall?.copyWith(color: context.tokens.textMuted)),
+              ],
+            ),
           ),
         ],
       ),

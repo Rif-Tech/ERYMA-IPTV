@@ -16,7 +16,6 @@ type Device = {
   status: "active" | "revoked";
   last_seen_at: string;
   created_at: string;
-  mac: string | null;
 };
 
 const typeLabel: Record<string, string> = { tv: "Téléviseur", tablet: "Tablette", mobile: "Téléphone" };
@@ -26,7 +25,7 @@ export default async function DevicesPage({ searchParams }: PageProps<"/account"
   if (!user) redirect("/login?next=/account");
   const justPaired = (await searchParams).paired === "1";
   const [{ data: devices, error }, { data: overview }] = await Promise.all([
-    supabase.from("devices").select("id, name, device_type, platform, manufacturer, model, os, os_version, app_version, status, last_seen_at, created_at, mac").eq("account_id", user.id).order("last_seen_at", { ascending: false }),
+    supabase.from("devices").select("id, name, device_type, platform, manufacturer, model, os, os_version, app_version, status, last_seen_at, created_at").eq("account_id", user.id).order("last_seen_at", { ascending: false }),
     supabase.from("accounts_overview").select("status").eq("id", user.id).maybeSingle(),
   ]);
   if (error) throw new Error(error.message);

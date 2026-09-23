@@ -61,21 +61,5 @@ void main() {
       // Only the hash travels to the server; it must match what Deno's SHA-256 hex would produce.
       expect(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     });
-
-    test('mac format is locally administered unicast', () {
-      final mac = macFromSeed('android:abc');
-      expect(mac, matches(RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')));
-      final first = int.parse(mac.substring(0, 2), radix: 16);
-      expect(first & 0x02, 0x02);
-      expect(first & 0x01, 0);
-      expect(macFromSeed('android:abc'), mac);
-      expect(macFromSeed('android:abd'), isNot(mac));
-    });
-
-    test('device key is 6 unambiguous chars', () {
-      final key = generateDeviceKey();
-      expect(key, hasLength(6));
-      expect(key, matches(RegExp(r'^[A-HJ-NP-Z2-9]{6}$')));
-    });
   });
 }

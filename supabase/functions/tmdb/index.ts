@@ -1,6 +1,6 @@
 // GET /tmdb?action=search|trending|details&type=movie|tv&q=...&id=...&lang=fr-FR
-// Proxies TMDB so the API key never leaves the server. Callable by a device (install headers or
-// legacy mac/key) or an admin.
+// Proxies TMDB so the API key never leaves the server. Callable by a paired device (install
+// headers) or an admin.
 
 import { adminClient, HttpError, json, serve } from "../_shared/http.ts";
 import { authenticateDeviceOrAdmin } from "../_shared/device.ts";

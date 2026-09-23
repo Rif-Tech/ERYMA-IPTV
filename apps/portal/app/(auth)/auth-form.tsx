@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
-import type { ActionState } from "../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 import { forgotPasswordAction, loginAction, resetPasswordAction, signupAction } from "./actions";
 
 type Mode = "login" | "signup" | "forgot" | "reset";

@@ -1,4 +1,4 @@
-// GET /featured?mode=curated|popular|tmdb&lang=fr-FR  (auth: install headers or legacy mac/key)
+// GET /featured?mode=curated|popular|tmdb&lang=fr-FR  (auth: install headers x-device-id / x-device-secret)
 // Returns the hero entries for the requested source in one uniform shape. Matching against the
 // device's playlists happens on the device (the server never sees playlist contents).
 

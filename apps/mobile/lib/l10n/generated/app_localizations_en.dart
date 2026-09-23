@@ -166,12 +166,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deviceInfo => 'Device information';
 
   @override
-  String get macAddress => 'MAC address';
-
-  @override
-  String get deviceKey => 'Device key';
-
-  @override
   String get deviceType => 'Device type';
 
   @override
@@ -181,18 +175,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get portalUrl => 'Portal';
 
   @override
-  String get scanQr =>
-      'Scan the QR code to add a playlist from the web portal.';
-
-  @override
-  String get scanQrManage =>
-      'Scan this QR code to add, edit or remove your playlists from the web portal.';
-
-  @override
-  String get managePlaylistsOnline => 'Manage my playlists on the web';
-
-  @override
-  String get openPortal => 'Open the portal';
+  String get managePlaylistsOnline => 'Manage my account on the web';
 
   @override
   String trialDaysLeft(int days) {
@@ -228,10 +211,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get portalUnreachable =>
       'Portal unreachable. Local playlists are still available.';
-
-  @override
-  String get deviceKeyConflict =>
-      'This MAC address is already registered with another device key. Ask the administrator to delete the device on the portal, then restart the app.';
 
   @override
   String get pairTitle => 'Link this device to your account';
@@ -652,13 +631,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get videoDecoder => 'Video decoding';
 
   @override
-  String get decoderAuto => 'Automatic (direct on TV)';
+  String get decoderAuto =>
+      'Automatic (tries direct, then hardware, then software)';
 
   @override
   String get decoderDirect => 'Direct hardware — smoothest';
 
   @override
-  String get decoderCompat => 'Compatibility — slower';
+  String get decoderCompat => 'Hardware (copy) — compatible';
+
+  @override
+  String get decoderSoftware => 'Software — works everywhere, slower';
 
   @override
   String get performanceMode => 'Performance mode';
@@ -671,6 +654,42 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get performanceOff => 'Off — full visuals';
+
+  @override
+  String get networkDns => 'Network / DNS';
+
+  @override
+  String get dnsMode => 'DNS';
+
+  @override
+  String get dnsModeSystem => 'System (device default)';
+
+  @override
+  String get dnsModeAuto => 'Automatic — picks the fastest';
+
+  @override
+  String get dnsModeServer => 'Choose a server';
+
+  @override
+  String get dnsModeCustom => 'Custom';
+
+  @override
+  String get dnsServer => 'DNS server';
+
+  @override
+  String get dnsCustomAddresses => 'Custom DNS addresses';
+
+  @override
+  String get dnsCustomAddressesHint => 'e.g. 1.1.1.1, 1.0.0.1';
+
+  @override
+  String get dnsTest => 'Test DNS';
+
+  @override
+  String get dnsTestHint => 'Checks which DNS can load your playlist\'s server';
+
+  @override
+  String get dnsTestNoPlaylist => 'No active playlist to test against.';
 
   @override
   String get clearCache => 'Clear cache';

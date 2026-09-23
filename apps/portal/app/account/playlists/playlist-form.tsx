@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
-import type { Playlist } from "@/lib/api";
-import type { ActionState } from "./actions";
+import type { ActionState, Playlist } from "@/lib/types";
 
 type Props = {
   action: (prev: ActionState, form: FormData) => Promise<ActionState>;

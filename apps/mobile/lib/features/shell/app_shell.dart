@@ -121,7 +121,10 @@ class _TvFocusBridge extends ConsumerWidget {
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown && !body.hasFocus) {
-          final child = body.focusedChild ?? topLeftFocusable(body);
+          // `focusedChild` can point at a node from a tab switched away from since; that subtree is
+          // now excluded (ExcludeFocus in _BranchStack), so requestFocus on it would silently no-op.
+          final remembered = body.focusedChild;
+          final child = (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(body);
           (child ?? body).requestFocus();
           return KeyEventResult.handled;
         }

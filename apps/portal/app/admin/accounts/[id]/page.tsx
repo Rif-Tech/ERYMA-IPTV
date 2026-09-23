@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/supabase";
-import type { Playlist } from "@/lib/api";
+import type { Playlist } from "@/lib/types";
 import { revokeAllDevicesAction, updateSubscriptionAction } from "../actions";
 import { type AccountOverview, SubscriptionBadge } from "../shared";
 
-type DeviceRow = { id: string; name: string | null; mac: string | null; device_type: string; model: string | null; status: string; last_seen_at: string };
+type DeviceRow = { id: string; name: string | null; device_type: string; model: string | null; status: string; last_seen_at: string };
 type ProfileRow = { id: string; name: string; is_kids: boolean };
 
 export default async function AccountDetailPage({ params }: PageProps<"/admin/accounts/[id]">) {
@@ -15,7 +15,7 @@ export default async function AccountDetailPage({ params }: PageProps<"/admin/ac
 
   const [{ data: account }, { data: devices }, { data: playlists }, { data: profiles }, { data: plans }] = await Promise.all([
     supabase.from("accounts_overview").select("*").eq("id", id).maybeSingle(),
-    supabase.from("devices").select("id, name, mac, device_type, model, status, last_seen_at").eq("account_id", id).order("last_seen_at", { ascending: false }),
+    supabase.from("devices").select("id, name, device_type, model, status, last_seen_at").eq("account_id", id).order("last_seen_at", { ascending: false }),
     supabase.from("playlists").select("*").eq("account_id", id).order("position"),
     supabase.from("viewer_profiles").select("id, name, is_kids").eq("account_id", id).order("position"),
     supabase.from("plans").select("id, name").order("id"),
@@ -89,7 +89,7 @@ export default async function AccountDetailPage({ params }: PageProps<"/admin/ac
         <h2 className="text-xl font-semibold">Appareils ({devices?.length ?? 0})</h2>
         {(devices as DeviceRow[] | null)?.map((d) => (
           <div key={d.id} className="card flex flex-wrap items-center justify-between gap-2 text-sm">
-            <Link href={`/admin/devices/${d.id}`} className="text-blue-400 hover:underline">{d.name ?? d.mac ?? d.id.slice(0, 8)}</Link>
+            <Link href={`/admin/devices/${d.id}`} className="text-blue-400 hover:underline">{d.name ?? d.id.slice(0, 8)}</Link>
             <span className="text-slate-400">{d.device_type}{d.model ? ` · ${d.model}` : ""} · {d.status === "active" ? "connecté" : "déconnecté"} · {new Date(d.last_seen_at).toLocaleString("fr-FR")}</span>
           </div>
         ))}

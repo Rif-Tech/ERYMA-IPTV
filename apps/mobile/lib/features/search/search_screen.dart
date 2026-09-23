@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -29,12 +30,28 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   late final _controller = TextEditingController(text: ref.read(_queryProvider));
+  // A focused TextField swallows the vertical arrows (cursor to line start/end), which strands a
+  // D-pad user in the field: hand them to focus traversal so DOWN reaches the results.
+  late final _fieldFocus = FocusNode(
+    debugLabel: 'search',
+    onKeyEvent: (node, event) {
+      if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+      final dir = switch (event.logicalKey) {
+        LogicalKeyboardKey.arrowDown => TraversalDirection.down,
+        LogicalKeyboardKey.arrowUp => TraversalDirection.up,
+        _ => null,
+      };
+      if (dir == null) return KeyEventResult.ignored;
+      return node.focusInDirection(dir) ? KeyEventResult.handled : KeyEventResult.ignored;
+    },
+  );
   Timer? _debounce;
 
   @override
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
+    _fieldFocus.dispose();
     super.dispose();
   }
 
@@ -67,7 +84,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               constraints: const BoxConstraints(maxWidth: 720),
               child: TextField(
                 autofocus: true,
+                focusNode: _fieldFocus,
                 controller: _controller,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _fieldFocus.focusInDirection(TraversalDirection.down),
                 style: Theme.of(context).textTheme.titleMedium,
                 decoration: InputDecoration(
                   hintText: l10n.searchHint,

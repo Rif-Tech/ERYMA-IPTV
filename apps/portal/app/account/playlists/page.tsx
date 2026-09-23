@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import type { Playlist } from "@/lib/api";
+import type { Playlist } from "@/lib/types";
 import { requireUser } from "@/lib/supabase";
 import type { AccountStatus } from "../layout";
 import { AccountPlaylists } from "./account-playlists";

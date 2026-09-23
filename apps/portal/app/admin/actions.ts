@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServer, requireAdmin } from "@/lib/supabase";
-import type { ActionState } from "../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 
 export async function adminLoginAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const supabase = await createSupabaseServer();
@@ -25,30 +25,6 @@ async function admin() {
   const ctx = await requireAdmin();
   if (!ctx.isAdmin) redirect("/admin/login");
   return ctx.supabase;
-}
-
-export async function setActivationAction(form: FormData): Promise<void> {
-  const supabase = await admin();
-  const id = String(form.get("id"));
-  const mode = String(form.get("mode"));
-  const expires = String(form.get("expires_at") ?? "").trim();
-  const patch =
-    mode === "deactivate"
-      ? { activated: false, activated_at: null, expires_at: null }
-      : { activated: true, activated_at: new Date().toISOString(), expires_at: expires ? new Date(expires).toISOString() : null };
-  const { error } = await supabase.from("devices").update(patch).eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath(`/admin/devices/${id}`);
-  revalidatePath("/admin");
-}
-
-export async function extendTrialAction(form: FormData): Promise<void> {
-  const supabase = await admin();
-  const id = String(form.get("id"));
-  // Restarting the trial clock is the simplest way to grant more days.
-  const { error } = await supabase.from("devices").update({ trial_started_at: new Date().toISOString() }).eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath(`/admin/devices/${id}`);
 }
 
 export async function saveNoteAction(form: FormData): Promise<void> {

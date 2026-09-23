@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { adminLoginAction } from "../actions";
-import type { ActionState } from "../../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 
 export default function AdminLoginPage() {
   const [state, action, pending] = useActionState<ActionState, FormData>(adminLoginAction, {});

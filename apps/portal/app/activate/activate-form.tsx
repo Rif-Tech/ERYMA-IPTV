@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
-import type { ActionState } from "../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 import { confirmDeviceAction, type PairingPreview } from "../pairing/actions";
 
 const typeLabel: Record<string, string> = { tv: "Téléviseur", tablet: "Tablette", mobile: "Téléphone" };

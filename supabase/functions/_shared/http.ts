@@ -50,14 +50,6 @@ export async function readJson<T = Record<string, unknown>>(req: Request): Promi
   }
 }
 
-const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
-
-export function normalizeMac(raw: unknown): string {
-  const mac = String(raw ?? "").trim().toUpperCase().replace(/-/g, ":");
-  if (!MAC_RE.test(mac)) throw new HttpError(400, "Invalid MAC address");
-  return mac;
-}
-
 export function requireString(value: unknown, name: string, max = 2048): string {
   const s = typeof value === "string" ? value.trim() : "";
   if (!s) throw new HttpError(400, `${name} is required`);

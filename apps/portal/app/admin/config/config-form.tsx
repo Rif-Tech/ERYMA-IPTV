@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { saveConfigAction } from "../actions";
-import type { ActionState } from "../../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 
 export type AppConfigValues = {
   app_status: string;

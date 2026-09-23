@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { Playlist } from "@/lib/api";
-import { PlaylistForm } from "../../manage-playlists/playlist-form";
+import type { Playlist } from "@/lib/types";
+import { PlaylistForm } from "./playlist-form";
 import { createPlaylistAction, deletePlaylistAction, movePlaylistAction, updatePlaylistAction } from "../actions";
 
 const fmt = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeZone: "Europe/Paris" });

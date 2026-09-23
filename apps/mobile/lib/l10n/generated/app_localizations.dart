@@ -398,18 +398,6 @@ abstract class AppLocalizations {
   /// **'Device information'**
   String get deviceInfo;
 
-  /// No description provided for @macAddress.
-  ///
-  /// In en, this message translates to:
-  /// **'MAC address'**
-  String get macAddress;
-
-  /// No description provided for @deviceKey.
-  ///
-  /// In en, this message translates to:
-  /// **'Device key'**
-  String get deviceKey;
-
   /// No description provided for @deviceType.
   ///
   /// In en, this message translates to:
@@ -428,29 +416,11 @@ abstract class AppLocalizations {
   /// **'Portal'**
   String get portalUrl;
 
-  /// No description provided for @scanQr.
-  ///
-  /// In en, this message translates to:
-  /// **'Scan the QR code to add a playlist from the web portal.'**
-  String get scanQr;
-
-  /// No description provided for @scanQrManage.
-  ///
-  /// In en, this message translates to:
-  /// **'Scan this QR code to add, edit or remove your playlists from the web portal.'**
-  String get scanQrManage;
-
   /// No description provided for @managePlaylistsOnline.
   ///
   /// In en, this message translates to:
-  /// **'Manage my playlists on the web'**
+  /// **'Manage my account on the web'**
   String get managePlaylistsOnline;
-
-  /// No description provided for @openPortal.
-  ///
-  /// In en, this message translates to:
-  /// **'Open the portal'**
-  String get openPortal;
 
   /// No description provided for @trialDaysLeft.
   ///
@@ -505,12 +475,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Portal unreachable. Local playlists are still available.'**
   String get portalUnreachable;
-
-  /// No description provided for @deviceKeyConflict.
-  ///
-  /// In en, this message translates to:
-  /// **'This MAC address is already registered with another device key. Ask the administrator to delete the device on the portal, then restart the app.'**
-  String get deviceKeyConflict;
 
   /// No description provided for @pairTitle.
   ///
@@ -1283,7 +1247,7 @@ abstract class AppLocalizations {
   /// No description provided for @decoderAuto.
   ///
   /// In en, this message translates to:
-  /// **'Automatic (direct on TV)'**
+  /// **'Automatic (tries direct, then hardware, then software)'**
   String get decoderAuto;
 
   /// No description provided for @decoderDirect.
@@ -1295,8 +1259,14 @@ abstract class AppLocalizations {
   /// No description provided for @decoderCompat.
   ///
   /// In en, this message translates to:
-  /// **'Compatibility — slower'**
+  /// **'Hardware (copy) — compatible'**
   String get decoderCompat;
+
+  /// No description provided for @decoderSoftware.
+  ///
+  /// In en, this message translates to:
+  /// **'Software — works everywhere, slower'**
+  String get decoderSoftware;
 
   /// No description provided for @performanceMode.
   ///
@@ -1321,6 +1291,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Off — full visuals'**
   String get performanceOff;
+
+  /// No description provided for @networkDns.
+  ///
+  /// In en, this message translates to:
+  /// **'Network / DNS'**
+  String get networkDns;
+
+  /// No description provided for @dnsMode.
+  ///
+  /// In en, this message translates to:
+  /// **'DNS'**
+  String get dnsMode;
+
+  /// No description provided for @dnsModeSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System (device default)'**
+  String get dnsModeSystem;
+
+  /// No description provided for @dnsModeAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic — picks the fastest'**
+  String get dnsModeAuto;
+
+  /// No description provided for @dnsModeServer.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a server'**
+  String get dnsModeServer;
+
+  /// No description provided for @dnsModeCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get dnsModeCustom;
+
+  /// No description provided for @dnsServer.
+  ///
+  /// In en, this message translates to:
+  /// **'DNS server'**
+  String get dnsServer;
+
+  /// No description provided for @dnsCustomAddresses.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom DNS addresses'**
+  String get dnsCustomAddresses;
+
+  /// No description provided for @dnsCustomAddressesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. 1.1.1.1, 1.0.0.1'**
+  String get dnsCustomAddressesHint;
+
+  /// No description provided for @dnsTest.
+  ///
+  /// In en, this message translates to:
+  /// **'Test DNS'**
+  String get dnsTest;
+
+  /// No description provided for @dnsTestHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Checks which DNS can load your playlist\'s server'**
+  String get dnsTestHint;
+
+  /// No description provided for @dnsTestNoPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'No active playlist to test against.'**
+  String get dnsTestNoPlaylist;
 
   /// No description provided for @clearCache.
   ///

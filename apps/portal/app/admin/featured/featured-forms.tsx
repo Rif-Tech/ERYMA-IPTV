@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition, type FormEvent } from "react";
-import type { ActionState } from "../../manage-playlists/actions";
+import type { ActionState } from "@/lib/types";
 import { addCustomFeaturedAction, addTmdbFeaturedAction, searchTmdbAction, updateFeaturedAction, type TmdbResult } from "./actions";
 import type { FeaturedRow } from "./types";
 

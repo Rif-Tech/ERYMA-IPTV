@@ -20,8 +20,6 @@ enum DeviceType { mobile, tablet, tv }
 class DeviceIdentity {
   const DeviceIdentity({
     required this.uuid,
-    required this.mac,
-    required this.key,
     required this.type,
     required this.platform,
     required this.appVersion,
@@ -33,13 +31,6 @@ class DeviceIdentity {
 
   /// Random id generated once per installation; the account-side identity of this install.
   final String uuid;
-
-  /// Legacy pseudo MAC address (`AA:BB:CC:DD:EE:FF`), stable per hardware. Only sent at pairing time
-  /// so the portal can claim playlists registered with the old MAC/key scheme.
-  final String mac;
-
-  /// Legacy device key, paired with [mac].
-  final String key;
   final DeviceType type;
   final String platform;
   final String appVersion;
@@ -58,36 +49,10 @@ class DeviceIdentity {
         'model': ?model,
         'os': ?os,
         'os_version': ?osVersion,
-        'mac': mac,
-        'device_key': key,
       };
 
   /// Human readable hardware label (`Xiaomi MIBOX4`).
   String get hardwareLabel => [manufacturer, model].whereType<String>().where((s) => s.isNotEmpty).join(' ');
-}
-
-/// Formats 6 bytes as a locally-administered unicast MAC address.
-String macFromBytes(List<int> bytes) {
-  assert(bytes.length >= 6);
-  final b = List<int>.from(bytes.take(6));
-  b[0] = (b[0] | 0x02) & 0xFE;
-  return b.map((e) => e.toRadixString(16).padLeft(2, '0').toUpperCase()).join(':');
-}
-
-/// Derives a pseudo MAC from any stable identifier.
-String macFromSeed(String seed) => macFromBytes(sha256.convert(utf8.encode(seed)).bytes);
-
-String generateDeviceKey([Random? random]) {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  final rnd = random ?? Random.secure();
-  return List.generate(6, (_) => alphabet[rnd.nextInt(alphabet.length)]).join();
-}
-
-/// Stable key for a hardware seed, so a reinstall yields the same MAC/key pair.
-String keyFromSeed(String seed) {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  final digest = sha256.convert(utf8.encode('key:$seed')).bytes;
-  return List.generate(6, (i) => alphabet[digest[i] % alphabet.length]).join();
 }
 
 /// RFC 4122 version 4 UUID from a secure random source.
@@ -189,28 +154,19 @@ class DeviceIdentityService {
   DeviceIdentityService({FlutterSecureStorage? storage, this.prefs})
       : _store = _FallbackStore(storage ?? const FlutterSecureStorage(), prefs);
 
-  static const _macKey = 'device.mac';
-  static const _keyKey = 'device.key';
   static const _uuidKey = 'device.uuid';
   final _FallbackStore _store;
 
   /// Fallback store: secure storage is unavailable on some TV boxes / emulators.
   final SharedPreferences? prefs;
 
-  Future<String?> _read(String key) => _store.read(key);
-
-  Future<void> _write(String key, String value) => _store.write(key, value);
-
   Future<DeviceIdentity> load() async {
     final info = DeviceInfoPlugin();
     final package = await PackageInfo.fromPlatform();
 
-    var mac = await _read(_macKey);
-    var key = await _read(_keyKey);
-    var uuid = await _read(_uuidKey);
+    var uuid = await _store.read(_uuidKey);
     var type = DeviceType.mobile;
     var platform = defaultTargetPlatform.name;
-    String? seed;
     String? manufacturer;
     String? model;
     String? os;
@@ -219,7 +175,6 @@ class DeviceIdentityService {
     if (!kIsWeb && Platform.isAndroid) {
       final android = await info.androidInfo;
       platform = 'android';
-      seed = 'android:${android.id}:${android.fingerprint}';
       type = await _androidDeviceType(android);
       manufacturer = android.manufacturer;
       model = android.model;
@@ -228,33 +183,17 @@ class DeviceIdentityService {
     } else if (!kIsWeb && Platform.isIOS) {
       final ios = await info.iosInfo;
       platform = 'ios';
-      final vendorId = ios.identifierForVendor;
-      if (vendorId != null) seed = 'ios:$vendorId';
       type = ios.model.toLowerCase().contains('ipad') ? DeviceType.tablet : DeviceType.mobile;
       manufacturer = 'Apple';
       model = ios.utsname.machine;
       os = ios.systemName;
       osVersion = ios.systemVersion;
     }
-    // With a hardware seed the identity is a pure function of the device: never let a stale or
-    // half-decrypted stored value win, otherwise debug/release installs end up with mismatched keys.
-    if (seed != null) {
-      mac = macFromSeed(seed);
-      key = keyFromSeed(seed);
-    } else {
-      mac ??= macFromBytes(_randomBytes(6));
-      key ??= generateDeviceKey();
-    }
     uuid ??= generateUuidV4();
-
-    await _write(_macKey, mac);
-    await _write(_keyKey, key);
-    await _write(_uuidKey, uuid);
+    await _store.write(_uuidKey, uuid);
 
     return DeviceIdentity(
       uuid: uuid,
-      mac: mac,
-      key: key,
       type: type,
       platform: platform,
       appVersion: package.version,
@@ -273,11 +212,6 @@ class DeviceIdentityService {
       if (shortest >= 600) return DeviceType.tablet;
     }
     return DeviceType.mobile;
-  }
-
-  static List<int> _randomBytes(int n) {
-    final r = Random.secure();
-    return List.generate(n, (_) => r.nextInt(256));
   }
 }
 

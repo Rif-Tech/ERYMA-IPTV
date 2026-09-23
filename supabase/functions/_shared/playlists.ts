@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { safeEqual } from "./device.ts";
 import { HttpError, optionalString, requireString } from "./http.ts";
 
 export interface PlaylistRow {
@@ -20,9 +19,7 @@ export interface PlaylistRow {
   updated_at: string;
 }
 
-export const MAX_PLAYLISTS_PER_DEVICE = 20;
-
-/** Validates a playlist payload from the app or the portal. */
+/** Validates a playlist payload from the portal. */
 export function validatePlaylistInput(body: Record<string, unknown>, partial = false) {
   const out: Record<string, unknown> = {};
 
@@ -80,17 +77,6 @@ export function convertGetPhp(input: Record<string, unknown>): Record<string, un
   return { ...input, type: "xtream", url: base, username, password };
 }
 
-export async function listPlaylists(db: SupabaseClient, deviceId: string): Promise<PlaylistRow[]> {
-  const { data, error } = await db
-    .from("playlists")
-    .select("*")
-    .eq("device_id", deviceId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw new HttpError(500, error.message);
-  return (data ?? []) as PlaylistRow[];
-}
-
 export async function listAccountPlaylists(db: SupabaseClient, accountId: string): Promise<PlaylistRow[]> {
   const { data, error } = await db
     .from("playlists")
@@ -100,60 +86,4 @@ export async function listAccountPlaylists(db: SupabaseClient, accountId: string
     .order("created_at", { ascending: true });
   if (error) throw new HttpError(500, error.message);
   return (data ?? []) as PlaylistRow[];
-}
-
-export async function getPlaylist(db: SupabaseClient, deviceId: string, id: string): Promise<PlaylistRow> {
-  const { data, error } = await db.from("playlists").select("*").eq("id", id).eq("device_id", deviceId).maybeSingle();
-  if (error) throw new HttpError(500, error.message);
-  if (!data) throw new HttpError(404, "Playlist not found");
-  return data as PlaylistRow;
-}
-
-/** Hides credentials of PIN-protected playlists in portal listings. */
-export function maskProtected(p: PlaylistRow): PlaylistRow & { locked: boolean } {
-  if (!p.is_protected) return { ...p, locked: false };
-  let host = "•••";
-  try {
-    host = new URL(p.url).host;
-  } catch { /* keep placeholder */ }
-  return { ...p, url: `${host}/•••`, username: null, password: null, epg_url: null, pin_code: null, locked: true };
-}
-
-/** Throws 403 unless [pin] matches the playlist's PIN (no-op for unprotected playlists). */
-export function assertPin(p: PlaylistRow, pin: unknown): void {
-  if (!p.is_protected || !p.pin_code) return;
-  const given = typeof pin === "string" ? pin.trim() : "";
-  if (!given || !safeEqual(given, p.pin_code)) throw new HttpError(403, "PIN incorrect");
-}
-
-export async function createPlaylist(db: SupabaseClient, deviceId: string, input: Record<string, unknown>) {
-  const existing = await listPlaylists(db, deviceId);
-  if (existing.length >= MAX_PLAYLISTS_PER_DEVICE) throw new HttpError(409, "Too many playlists for this device");
-  const position = input.position ?? (existing.length ? Math.max(...existing.map((p) => p.position)) + 1 : 0);
-  const { data, error } = await db
-    .from("playlists")
-    .insert({ ...input, device_id: deviceId, position })
-    .select("*")
-    .single();
-  if (error) throw new HttpError(500, error.message);
-  return data as PlaylistRow;
-}
-
-export async function updatePlaylist(db: SupabaseClient, deviceId: string, id: string, input: Record<string, unknown>) {
-  const { data, error } = await db
-    .from("playlists")
-    .update(input)
-    .eq("id", id)
-    .eq("device_id", deviceId)
-    .select("*")
-    .maybeSingle();
-  if (error) throw new HttpError(500, error.message);
-  if (!data) throw new HttpError(404, "Playlist not found");
-  return data as PlaylistRow;
-}
-
-export async function deletePlaylist(db: SupabaseClient, deviceId: string, id: string) {
-  const { error, count } = await db.from("playlists").delete({ count: "exact" }).eq("id", id).eq("device_id", deviceId);
-  if (error) throw new HttpError(500, error.message);
-  if (!count) throw new HttpError(404, "Playlist not found");
 }
