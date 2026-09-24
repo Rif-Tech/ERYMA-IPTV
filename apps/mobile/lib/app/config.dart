@@ -49,4 +49,8 @@ abstract final class AppConfig {
   /// Sentry DSN for native crash / Dart exception reporting. Empty disables it entirely (no
   /// account is provisioned by default — see docs/api.md for how to set one up).
   static const sentryDsn = String.fromEnvironment('SENTRY_DSN');
+
+  /// Attaches a screenshot to Sentry events. Off by default: a screenshot shows playlist content
+  /// (titles, posters), which otherwise never leaves the device. Meant for test boxes.
+  static const sentryScreenshots = bool.fromEnvironment('SENTRY_SCREENSHOTS');
 }

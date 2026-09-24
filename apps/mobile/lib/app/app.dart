@@ -9,6 +9,7 @@ import '../features/splash/session_gate.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'responsive.dart';
 import 'router.dart';
+import 'telemetry_providers.dart';
 import 'theme.dart';
 
 class MultIptvApp extends ConsumerWidget {
@@ -19,6 +20,8 @@ class MultIptvApp extends ConsumerWidget {
     ref.watch(dnsRuntimeSyncProvider);
     ref.watch(dnsProxyProvider);
     ref.watch(appLogLifecycleProvider);
+    ref.watch(telemetryRouteProvider);
+    ref.watch(telemetryScopeProvider);
     final settings = ref.watch(settingsProvider);
     final router = ref.watch(routerProvider);
     final isTv = ref.watch(isTelevisionProvider);
