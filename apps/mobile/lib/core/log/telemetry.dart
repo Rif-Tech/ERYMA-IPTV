@@ -105,9 +105,14 @@ abstract final class Telemetry {
 
   // ---- Scope ---------------------------------------------------------------
 
+  // Also sent as Sentry Logs, so a whole session can be searched there (breadcrumbs only travel
+  // with an event, 200 at most). `dpad` logs its own, richer line once the focus has settled.
+  static const _loggedCategories = {'navigation', 'player', 'dns', 'layout', 'mpv'};
+
   static void breadcrumb(String category, String message, {Map<String, Object?>? data, SentryLevel level = SentryLevel.info, String? type}) {
     if (!enabled) return;
     unawaited(Sentry.addBreadcrumb(Breadcrumb(category: category, message: message, data: data, level: level, type: type)));
+    if (_loggedCategories.contains(category)) trace(category, message, {...?data, 'level': level.name});
   }
 
   /// Structured block shown on every later event (`playback`, `dns`, `media`…); null clears it.
@@ -179,6 +184,23 @@ abstract final class Telemetry {
       await scope.setTag('category', category);
       if (data != null) await scope.setContexts('details', _scrubValue(data));
     }));
+  }
+
+  /// A Sentry Log only (no breadcrumb, no event): a searchable trace line in Sentry → Logs, for
+  /// high-volume diagnostics such as every remote key press.
+  static void trace(String category, String message, Map<String, Object?> data) {
+    if (!enabled) return;
+    unawaited(Future.sync(() => Sentry.logger.info(message, attributes: {
+          'category': SentryAttribute.string(category),
+          for (final MapEntry(:key, :value) in data.entries)
+            if (value != null)
+              key: switch (value) {
+                bool b => SentryAttribute.bool(b),
+                int i => SentryAttribute.int(i),
+                double d => SentryAttribute.double(d),
+                _ => SentryAttribute.string('$value'),
+              },
+        })));
   }
 
   /// Mirror of an [AppLogger] entry: breadcrumb + Sentry Log for every level, plus an event for

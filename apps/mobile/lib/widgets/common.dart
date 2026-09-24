@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/responsive.dart';
 import '../app/theme.dart';
 import '../core/images/artwork_cache.dart';
+import '../core/log/remote_key_tracker.dart';
 
 /// Focus-aware card: scales up and shows a white ring when focused (D-pad) or hovered.
 class FocusableCard extends ConsumerStatefulWidget {
@@ -470,6 +471,7 @@ class Shelf extends ConsumerWidget {
                     final position = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
                     final renderObject = context.findRenderObject();
                     if (position == null || renderObject == null) return;
+                    RemoteKeyTracker.note('shelf: card $i focused, page scrolls to center it');
                     position.ensureVisible(renderObject, alignment: 0.5, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
                   },
                   child: itemBuilder(context, i),

@@ -15,7 +15,9 @@ import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/log/app_logger.dart';
+import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/telemetry.dart';
+import '../../core/log/trace_tag.dart';
 import '../../core/net/dns_providers.dart';
 import '../../core/platform/native_platform.dart';
 import '../../core/player/playback.dart';
@@ -260,20 +262,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   late final DecodePath _path;
   bool _fellBack = false;
   Timer? _watchdog;
-  final _progressFocus = FocusNode(debugLabel: 'progress');
+  final _progressFocus = TraceTag.name(FocusNode(debugLabel: 'progress'), 'player-progress');
   // Holds focus while the controls are hidden, so every key reaches [_onKey]. Without it focus
   // fell back to the route's scope: the first press after the controls hid was lost (Right did
   // not zap) or OK paused instead of only showing the controls (Sentry FLUTTER-4, FLUTTER-7).
-  final _keyFocus = FocusNode(debugLabel: 'player-keys');
-  final _playFocus = FocusNode(debugLabel: 'play');
+  final _keyFocus = TraceTag.name(FocusNode(debugLabel: 'player-keys'), 'player-keys');
+  final _playFocus = TraceTag.name(FocusNode(debugLabel: 'play'), 'player-play');
   // Overlay-visible Up routing needs to know which button is focused: back (top-left), the
   // channel-list toggle (live, top-right), and the transport row's outer buttons.
-  final _backFocus = FocusNode(debugLabel: 'back');
-  final _prevFocus = FocusNode(debugLabel: 'prev');
-  final _nextFocus = FocusNode(debugLabel: 'next');
-  final _listToggleFocus = FocusNode(debugLabel: 'list-toggle');
-  final _replayFocus = FocusNode(debugLabel: 'replay');
-  final _forwardFocus = FocusNode(debugLabel: 'forward');
+  final _backFocus = TraceTag.name(FocusNode(debugLabel: 'back'), 'player-back');
+  final _prevFocus = TraceTag.name(FocusNode(debugLabel: 'prev'), 'player-prev');
+  final _nextFocus = TraceTag.name(FocusNode(debugLabel: 'next'), 'player-next');
+  final _listToggleFocus = TraceTag.name(FocusNode(debugLabel: 'list-toggle'), 'player-list-toggle');
+  final _replayFocus = TraceTag.name(FocusNode(debugLabel: 'replay'), 'player-replay');
+  final _forwardFocus = TraceTag.name(FocusNode(debugLabel: 'forward'), 'player-forward');
 
   DecodePath _defaultPath() {
     // Emulators cannot create mpv's EGL context (vo=gpu): only the direct path shows a picture.
@@ -541,6 +543,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   // ---- Keys ---------------------------------------------------------------
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    final result = _handleKey(event);
+    if (result == KeyEventResult.handled && event is KeyDownEvent) {
+      RemoteKeyTracker.note('player: ${event.logicalKey.keyLabel} (overlay ${_overlay ? 'shown' : 'hidden'}${_isLive ? ', live' : ''})');
+    }
+    return result;
+  }
+
+  KeyEventResult _handleKey(KeyEvent event) {
     // Self-heal a lost focus instead of leaving the D-pad "stuck": a button's own rebuild (e.g.
     // skip_next's ValueListenableBuilder rebuilding after _next() zaps the channel while it was
     // focused) can leave primaryFocus null, with nothing left to receive the next key event's

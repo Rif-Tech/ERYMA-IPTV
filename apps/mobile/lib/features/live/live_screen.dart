@@ -16,6 +16,7 @@ import '../content/content_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
 import '../shell/app_shell.dart' show topLeftFocusable;
+import '../../core/log/trace_tag.dart';
 
 /// Category entry shown in the left pane (special or provider category).
 class CategoryEntry {
@@ -130,13 +131,13 @@ class _BrowserScaffoldState extends State<BrowserScaffold> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(width: form.isTv ? 220 : 200, child: FocusScope(node: _pane, child: CategoryPane(kind: widget.kind))),
+            SizedBox(width: form.isTv ? 220 : 200, child: TraceTag('categories', child: FocusScope(node: _pane, child: CategoryPane(kind: widget.kind)))),
             const SizedBox(width: 24),
             Expanded(
-              child: FocusScope(
+              child: TraceTag('content', child: FocusScope(
                 node: _content,
                 child: MediaQuery.removePadding(context: context, removeTop: true, child: widget.child),
-              ),
+              )),
             ),
           ],
         ),

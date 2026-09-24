@@ -9,6 +9,8 @@ import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/log/remote_key_tracker.dart';
+import '../../core/log/trace_tag.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -38,7 +40,7 @@ final _newSeriesScopeProvider = Provider<FocusScopeNode>((ref) => _scope(ref, 'h
 
 /// The footer's "Changer de playlist" button: the last row of the chain.
 final _footerButtonFocusProvider = Provider<FocusNode>((ref) {
-  final node = FocusNode(debugLabel: 'home-footer-button');
+  final node = TraceTag.name(FocusNode(debugLabel: 'home-footer-button'), 'change-playlist');
   ref.onDispose(node.dispose);
   return node;
 });
@@ -91,6 +93,7 @@ class HomeFocusChain extends StatelessWidget {
         if (i < 0) return KeyEventResult.ignored;
         // The footer button is alone on its row: Left/Right must not wander into a shelf.
         if ((key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) && rows[i] is! FocusScopeNode) {
+          RemoteKeyTracker.note('home-chain: left/right blocked on footer');
           return KeyEventResult.handled;
         }
         final down = key == LogicalKeyboardKey.arrowDown;
@@ -98,11 +101,13 @@ class HomeFocusChain extends StatelessWidget {
         for (var j = down ? i + 1 : i - 1; j >= 0 && j < rows.length; j += down ? 1 : -1) {
           final target = _entryOf(rows[j]);
           if (target == null) continue;
+          RemoteKeyTracker.note('home-chain: ${down ? 'down' : 'up'} row $i → row $j (${TraceTag.pathOf(target)})');
           target.requestFocus();
           _correctScroll(target);
           return KeyEventResult.handled;
         }
         // Down on the last row: stay put. Up on the first row: the tab bar (_TvFocusBridge).
+        RemoteKeyTracker.note(down ? 'home-chain: down on last row, stays' : 'home-chain: up from first row → tab bar');
         return down ? KeyEventResult.handled : KeyEventResult.ignored;
       },
       child: child,
@@ -144,7 +149,7 @@ class HomeScreen extends ConsumerWidget {
     return Responsive(
       builder: (context, form) {
         final heroItems = hero.value ?? const <HeroItem>[];
-        return HomeFocusChain(
+        return TraceTag('home', child: HomeFocusChain(
           rows: [heroScope, quickLinksScope, continueWatchingScope, recentChannelsScope, newMoviesScope, newSeriesScope, footerFocus],
           child: CustomScrollView(
             // The hero draws under the top bar; only pad when there is no hero to sit behind it.
@@ -154,14 +159,14 @@ class HomeScreen extends ConsumerWidget {
                     ? SizedBox(height: form.isMobile ? 300 : 420, child: const _HeroSkeleton())
                     : heroItems.isEmpty
                         ? SizedBox(height: topInset)
-                        : FocusScope(node: heroScope, child: HeroCarousel(items: heroItems, playlistId: playlist.id, form: form)),
+                        : TraceTag('hero', child: FocusScope(node: heroScope, child: HeroCarousel(items: heroItems, playlistId: playlist.id, form: form))),
               ),
               if (heroItems.isEmpty && !hero.isLoading)
-                SliverToBoxAdapter(child: FocusScope(node: quickLinksScope, child: _QuickLinks(form: form))),
-              SliverToBoxAdapter(child: FocusScope(node: continueWatchingScope, child: _ContinueWatchingShelf(playlistId: playlist.id, form: form))),
-              SliverToBoxAdapter(child: FocusScope(node: recentChannelsScope, child: _RecentChannelsShelf(playlistId: playlist.id, form: form))),
-              SliverToBoxAdapter(child: FocusScope(node: newMoviesScope, child: _PosterShelf(playlistId: playlist.id, form: form, series: false))),
-              SliverToBoxAdapter(child: FocusScope(node: newSeriesScope, child: _PosterShelf(playlistId: playlist.id, form: form, series: true))),
+                SliverToBoxAdapter(child: TraceTag('quick-links', child: FocusScope(node: quickLinksScope, child: _QuickLinks(form: form)))),
+              SliverToBoxAdapter(child: TraceTag('continue-watching', child: FocusScope(node: continueWatchingScope, child: _ContinueWatchingShelf(playlistId: playlist.id, form: form)))),
+              SliverToBoxAdapter(child: TraceTag('recent-channels', child: FocusScope(node: recentChannelsScope, child: _RecentChannelsShelf(playlistId: playlist.id, form: form)))),
+              SliverToBoxAdapter(child: TraceTag('new-movies', child: FocusScope(node: newMoviesScope, child: _PosterShelf(playlistId: playlist.id, form: form, series: false)))),
+              SliverToBoxAdapter(child: TraceTag('new-series', child: FocusScope(node: newSeriesScope, child: _PosterShelf(playlistId: playlist.id, form: form, series: true)))),
               SliverToBoxAdapter(
                 child: _Footer(
                   playlist: playlist,
@@ -175,7 +180,7 @@ class HomeScreen extends ConsumerWidget {
               ),
             ],
           ),
-        );
+        ));
       },
     );
   }

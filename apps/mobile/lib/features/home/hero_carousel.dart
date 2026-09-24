@@ -14,6 +14,8 @@ import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/images/artwork_cache.dart';
 import '../../core/log/app_logger.dart';
+import '../../core/log/remote_key_tracker.dart';
+import '../../core/log/trace_tag.dart';
 import '../../core/settings/settings.dart';
 import '../../core/xtream/xtream_client.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -55,8 +57,8 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
   Timer? _timer;
   Timer? _clock;
   bool _paused = false;
-  final _playNode = FocusNode(debugLabel: 'hero-play');
-  final _infoNode = FocusNode(debugLabel: 'hero-info');
+  final _playNode = TraceTag.name(FocusNode(debugLabel: 'hero-play'), 'play');
+  final _infoNode = TraceTag.name(FocusNode(debugLabel: 'hero-info'), 'info');
 
   @override
   void initState() {
@@ -214,19 +216,23 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
         final last = canOpen ? _infoNode : _playNode;
         if (e.logicalKey == LogicalKeyboardKey.arrowRight) {
           if (first != last && first.hasFocus) {
+            RemoteKeyTracker.note('hero: right → last button');
             last.requestFocus();
             return KeyEventResult.handled;
           }
           if (last.hasFocus && widget.items.length > 1) {
+            RemoteKeyTracker.note('hero: right → next featured item');
             _go(_index + 1);
             return KeyEventResult.handled;
           }
         } else {
           if (first != last && last.hasFocus) {
+            RemoteKeyTracker.note('hero: left → first button');
             first.requestFocus();
             return KeyEventResult.handled;
           }
           if (first.hasFocus && widget.items.length > 1) {
+            RemoteKeyTracker.note('hero: left → previous featured item');
             _go(_index - 1);
             return KeyEventResult.handled;
           }

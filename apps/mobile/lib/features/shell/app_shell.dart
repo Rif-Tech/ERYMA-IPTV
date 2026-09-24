@@ -11,6 +11,8 @@ import '../../l10n/generated/app_localizations.dart';
 import '../content/content_providers.dart' show SpecialCategory;
 import '../live/live_screen.dart' show selectedCategoryProvider;
 import '../search/search_screen.dart' show resetSearch;
+import '../../core/log/remote_key_tracker.dart';
+import '../../core/log/trace_tag.dart';
 
 class _Destination {
   const _Destination(this.route, this.icon, this.selectedIcon, this.label);
@@ -46,7 +48,7 @@ FocusNode? topLeftFocusable(FocusScopeNode scope) {
 /// One stable, never-recreated node per tab (so content panes can jump back to the active one on
 /// D-pad up, and OK on a tab keeps the cursor on it once the page has loaded).
 final _tabFocusNodesProvider = Provider<List<FocusNode>>((ref) {
-  final nodes = [for (final d in _destinations) FocusNode(debugLabel: 'tab-${d.route}')];
+  final nodes = [for (final d in _destinations) TraceTag.name(FocusNode(debugLabel: 'tab-${d.route}'), 'tab${d.route}')];
   ref.onDispose(() {
     for (final n in nodes) {
       n.dispose();
@@ -114,12 +116,17 @@ class _TvFocusBridge extends ConsumerWidget {
             final tabs = barScope.traversalDescendants.toList()..sort((a, b) => a.rect.left.compareTo(b.rect.left));
             final i = tabs.indexOf(current);
             final next = i < 0 ? null : (dir == TraversalDirection.left ? (i > 0 ? tabs[i - 1] : null) : (i < tabs.length - 1 ? tabs[i + 1] : null));
+            RemoteKeyTracker.note('tab-bridge: ${dir.name} within tabs${next == null ? ' (edge, stays)' : ''}');
             next?.requestFocus();
             return KeyEventResult.handled;
           }
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowUp && body.hasFocus) {
-          if (canMove && current.focusInDirection(TraversalDirection.up) && body.hasFocus) return KeyEventResult.handled;
+          if (canMove && current.focusInDirection(TraversalDirection.up) && body.hasFocus) {
+            RemoteKeyTracker.note('tab-bridge: up moved within page');
+            return KeyEventResult.handled;
+          }
+          RemoteKeyTracker.note('tab-bridge: up → tab bar');
           ref.read(_barVisibleProvider.notifier).set(true);
           // Like the Apple TV app, reaching the tabs brings the page back to its top. Android lists
           // do not attach to the PrimaryScrollController, so scroll the list holding the focused item.
@@ -136,6 +143,7 @@ class _TvFocusBridge extends ConsumerWidget {
           // now excluded (ExcludeFocus in _BranchStack), so requestFocus on it would silently no-op.
           final remembered = body.focusedChild;
           final child = (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(body);
+          RemoteKeyTracker.note('tab-bridge: down → page (${remembered != null && remembered.canRequestFocus ? 'remembered' : 'top-left'})');
           (child ?? body).requestFocus();
           return KeyEventResult.handled;
         }
@@ -345,7 +353,7 @@ class _TopTabBar extends StatelessWidget {
               ],
             ),
           ),
-          Row(
+          TraceTag('tabs', child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               for (final (i, d) in _destinations.indexed)
@@ -361,7 +369,7 @@ class _TopTabBar extends StatelessWidget {
                   ),
                 ),
             ],
-          ),
+          )),
         ],
       ),
     );
