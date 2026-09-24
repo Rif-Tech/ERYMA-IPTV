@@ -11,6 +11,7 @@ Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, f
   - `touchscreen` et `leanback` en `required="false"` ;
   - `usesCleartextTraffic="true"` (panels IPTV souvent en HTTP, proxy DNS en loopback) ;
   - `largeHeap`, `launchMode="singleTop"`, `supportsPictureInPicture` (requis par `enterPip`) et un `configChanges` étendu.
+- `MainActivity` force `FlutterRenderer.debugForceSurfaceProducerGlTextures = true` : la surface vidéo par défaut de Flutter (ImageReader, Android 10+) empêche les décodeurs Amlogic de démarrer et bloque le thread principal (ANR). Ne le retire pas sans retester la vidéo sur une Mi Box S.
 - Les box 32 bits (Mi Box S…) n'acceptent que l'APK `armeabi-v7a`. Le release est buildé avec `--obfuscate --split-debug-info` : **archive `build/symbols` avec chaque APK publié**, sinon les crashs de prod sont illisibles (`flutter symbolize`).
 - Sans `android/key.properties`, Gradle signe le release avec la **clé debug**, silencieusement. `build-release.ps1` affiche seulement un avertissement, il ne bloque pas.
 - `--split-per-abi` donne un `versionCode` = 1000×ABI+N (armeabi-v7a 1001, arm64 2001, x86_64 4001), l'APK universel garde N. Publie un seul canal par parc de box, sinon `INSTALL_FAILED_VERSION_DOWNGRADE` en changeant de canal.

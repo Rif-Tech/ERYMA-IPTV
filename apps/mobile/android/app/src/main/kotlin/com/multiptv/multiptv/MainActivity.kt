@@ -6,12 +6,19 @@ import android.os.StatFs
 import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.renderer.FlutterRenderer
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "multiptv/platform"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        // media_kit renders video into a Flutter SurfaceProducer, backed by an ImageReader on
+        // Android 10+. Amlogic decoders (Mi Box S gen 2, OMX.amlogic.*) refuse to start on it
+        // ("MediaCodec start failed": black screen in direct mode) and the copy path stalls the
+        // main thread on its GPU fences (ANR, massive frame drops). Sentry FLUTTER-D/E/5/6.
+        // The SurfaceTexture backend is what video on Android used before and works on them.
+        FlutterRenderer.debugForceSurfaceProducerGlTextures = true
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
