@@ -631,8 +631,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get videoDecoder => 'Video decoding';
 
   @override
-  String get decoderAuto =>
-      'Automatic (tries direct, then hardware, then software)';
+  String get decoderAuto => 'Automatic (recommended)';
 
   @override
   String get decoderDirect => 'Direct hardware — smoothest';

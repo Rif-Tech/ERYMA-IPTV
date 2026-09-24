@@ -1247,7 +1247,7 @@ abstract class AppLocalizations {
   /// No description provided for @decoderAuto.
   ///
   /// In en, this message translates to:
-  /// **'Automatic (tries direct, then hardware, then software)'**
+  /// **'Automatic (recommended)'**
   String get decoderAuto;
 
   /// No description provided for @decoderDirect.

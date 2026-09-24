@@ -214,7 +214,7 @@
   "fitCover": "Fill",
   "fitStretch": "Stretch",
   "videoDecoder": "Video decoding",
-  "decoderAuto": "Automatic (tries direct, then hardware, then software)",
+  "decoderAuto": "Automatic (recommended)",
   "decoderDirect": "Direct hardware — smoothest",
   "decoderCompat": "Hardware (copy) — compatible",
   "decoderSoftware": "Software — works everywhere, slower",

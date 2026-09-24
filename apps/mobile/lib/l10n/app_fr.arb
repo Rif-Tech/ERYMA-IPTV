@@ -196,7 +196,7 @@
   "fitCover": "Remplir",
   "fitStretch": "Étirer",
   "videoDecoder": "Décodage vidéo",
-  "decoderAuto": "Automatique (essaie direct, puis matériel, puis logiciel)",
+  "decoderAuto": "Automatique (recommandé)",
   "decoderDirect": "Matériel direct — le plus fluide",
   "decoderCompat": "Matériel (copie) — compatible",
   "decoderSoftware": "Logiciel — fonctionne partout, plus lent",

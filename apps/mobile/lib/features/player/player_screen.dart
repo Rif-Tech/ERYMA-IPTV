@@ -256,7 +256,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   late final PlaybackTelemetry _telemetry;
   String _closeReason = 'closed';
 
-  static const _directUnsupportedKey = 'directDecodeUnsupported';
   static const _hardwareUnsupportedKey = 'hardwareCopyUnsupported';
   late final DecodePath _path;
   bool _fellBack = false;
@@ -284,15 +283,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       VideoDecoder.direct => DecodePath.direct,
       VideoDecoder.compat => DecodePath.hardware,
       VideoDecoder.software => DecodePath.software,
-      // `direct` (zero-copy, vo=mediacodec_embed) used to be the TV default here, but on weak
-      // GPU/driver combos (e.g. Mi Box S) it can decode a rejected profile into garbage (green
-      // tiles, partially black frame) *with* a valid frame size reported — the black-screen
-      // watchdog below only fires on a frame size that never arrives, so that failure mode never
-      // triggers the fallback to `hardware`. `hardware` (vo=gpu, hwdec=mediacodec-copy) is the
-      // safer default everywhere; the user can still force `direct` in Settings.
-      VideoDecoder.auto => (prefs.getBool(_directUnsupportedKey) ?? false)
-          ? ((prefs.getBool(_hardwareUnsupportedKey) ?? false) ? DecodePath.software : DecodePath.hardware)
-          : DecodePath.hardware,
+      // TV: `direct` (zero-copy). Measured on a Mi Box S gen 2 once video renders through a
+      // SurfaceTexture (MainActivity): 1-2 dropped frames per minute in 1080p and 4K HEVC, where
+      // `hardware` (mediacodec-copy + vo=gpu) dropped 2 frames out of 3 and hit ANRs in 4K
+      // (Sentry FLUTTER-5/6). The green frames that once ruled `direct` out came from Flutter's
+      // ImageReader surface, not from the decoder. Handhelds keep `hardware`.
+      VideoDecoder.auto => _isTv
+          ? DecodePath.direct
+          : ((prefs.getBool(_hardwareUnsupportedKey) ?? false) ? DecodePath.software : DecodePath.hardware),
     };
   }
 
@@ -322,8 +320,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   /// this box cannot use the failed path, so the next playback skips the detour.
   Future<void> _fallback(String reason) async {
     if (_fellBack || !mounted) return;
+    // A weak box cannot afford `hardware`'s GPU copy (see _defaultPath): software is the better
+    // second chance there, for everything short of 4K (refused below).
     final next = switch (_path) {
-      DecodePath.direct => DecodePath.hardware,
+      DecodePath.direct => ref.read(isLowEndDeviceProvider) ? DecodePath.software : DecodePath.hardware,
       DecodePath.hardware => DecodePath.software,
       DecodePath.software => null,
     };
@@ -354,9 +354,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       '${_path.name} failed ($reason) → restarting with ${next.name}',
       context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
     );
-    if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto) {
-      final prefs = ref.read(sharedPreferencesProvider);
-      await prefs.setBool(_path == DecodePath.direct ? _directUnsupportedKey : _hardwareUnsupportedKey, true);
+    // Only a hardware-copy failure is remembered for the whole install: `direct` failures are
+    // per stream (one SD channel refused by the decoder must not disable it for every channel).
+    if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto && _path == DecodePath.hardware) {
+      await ref.read(sharedPreferencesProvider).setBool(_hardwareUnsupportedKey, true);
     }
     if (!mounted) return;
     _closeReason = 'fallback to ${next.name}';
