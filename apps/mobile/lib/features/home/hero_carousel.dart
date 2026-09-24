@@ -23,9 +23,7 @@ import '../content/content_providers.dart';
 import '../movies/movie_detail_screen.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
-import '../shell/app_shell.dart' show topLeftFocusable;
 import 'featured_provider.dart';
-import 'home_screen.dart' show firstShelfScopeProvider;
 
 /// Series metadata (backdrop, genre, plot) fetched lazily from the Xtream panel.
 final seriesInfoProvider = FutureProvider.family<XtreamSeriesInfo?, String>((ref, id) async {
@@ -204,17 +202,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
       onFocusChange: (f) => _paused = f,
       onKeyEvent: (_, e) {
         if (e is! KeyDownEvent) return KeyEventResult.ignored;
-        // Down from Lire/Infos always drops into "Reprendre la lecture" (the first shelf), rather
-        // than trusting Flutter's geometric traversal to reach it reliably from a full-bleed hero.
-        if (e.logicalKey == LogicalKeyboardKey.arrowDown) {
-          final scope = ref.read(firstShelfScopeProvider);
-          final target = scope.focusedChild ?? topLeftFocusable(scope);
-          if (target != null) {
-            target.requestFocus();
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        }
+        // Up/Down are routed by the home page's focus chain (HomeFocusChain, home_screen.dart).
         // Right from Play moves to Infos, left from Infos moves back to Play; right on the last
         // button / left on the first one flips the featured item. All four transitions are handled
         // explicitly: Flutter's default directional traversal is not reliable enough at this

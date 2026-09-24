@@ -790,9 +790,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get exitDescription => 'Voulez-vous quitter l\'application ?';
 
   @override
-  String get seeAll => 'Tout voir';
-
-  @override
   String get continueWatching => 'Reprendre la lecture';
 
   @override

@@ -1538,12 +1538,6 @@ abstract class AppLocalizations {
   /// **'Do you want to exit the app?'**
   String get exitDescription;
 
-  /// No description provided for @seeAll.
-  ///
-  /// In en, this message translates to:
-  /// **'See all'**
-  String get seeAll;
-
   /// No description provided for @continueWatching.
   ///
   /// In en, this message translates to:

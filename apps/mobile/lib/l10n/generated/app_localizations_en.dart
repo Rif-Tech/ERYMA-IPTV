@@ -786,9 +786,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get exitDescription => 'Do you want to exit the app?';
 
   @override
-  String get seeAll => 'See all';
-
-  @override
   String get continueWatching => 'Continue watching';
 
   @override
