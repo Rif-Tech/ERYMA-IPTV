@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:sentry_flutter/sentry_flutter.dart' show SentryLevel;
 
+import '../log/telemetry.dart';
 import 'dns_resolver.dart';
 
 /// Mutable holder so the active resolver can change at runtime without recreating [HttpClient]s;
@@ -27,6 +29,13 @@ class AppHttpOverrides extends HttpOverrides {
         }
         final addresses = await resolver.lookup(uri.host);
         if (addresses.isEmpty) {
+          unawaited(Telemetry.capture(
+            'dns',
+            'DNS resolution failed for ${uri.host}',
+            level: SentryLevel.error,
+            data: {'host': uri.host, 'scheme': uri.scheme, 'resolver': '$resolver', 'path': 'dart-http'},
+            fingerprint: ['dns-resolution-failed', uri.host],
+          ));
           throw SocketException('DNS resolution failed for ${uri.host}', address: literal);
         }
         return Socket.connect(addresses.first, uri.port);

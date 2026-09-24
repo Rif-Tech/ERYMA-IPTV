@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/portal_api.dart';
 import '../db/database.dart';
 import '../device/device_identity.dart';
+import '../log/telemetry.dart';
 import '../settings/settings.dart';
 import 'dns_http_overrides.dart';
 import 'dns_models.dart';
@@ -51,6 +52,7 @@ class DnsServers extends AsyncNotifier<List<DnsServer>> {
       return info.dnsServers;
     } catch (e) {
       debugPrint('dnsServers: $e');
+      Telemetry.breadcrumb('dns', 'dns server list refresh failed: $e');
       return null;
     }
   }
@@ -94,6 +96,18 @@ final dnsProbeHostProvider = FutureProvider<String?>((ref) async {
 /// `auto` probes every enabled server against [dnsProbeHostProvider] and keeps the fastest one.
 final activeDnsResolverProvider = FutureProvider<DnsResolver?>((ref) async {
   final settings = ref.watch(settingsProvider);
+  final resolver = await _buildResolver(ref, settings);
+  Telemetry.breadcrumb('dns', 'active resolver: ${resolver ?? 'system'} (mode ${settings.dnsMode.name})');
+  Telemetry.context('dns', {
+    'mode': settings.dnsMode.name,
+    'server_id': settings.dnsServerId,
+    'custom_addresses': settings.dnsCustomAddresses,
+    'resolver': '${resolver ?? 'system'}',
+  });
+  return resolver;
+});
+
+Future<DnsResolver?> _buildResolver(Ref ref, AppSettings settings) async {
   switch (settings.dnsMode) {
     case DnsMode.system:
       return null;
@@ -118,11 +132,12 @@ final activeDnsResolverProvider = FutureProvider<DnsResolver?>((ref) async {
       final servers = await ref.watch(dnsServersProvider.future);
       final results = await probeDns(host, servers);
       final winner = results.where((r) => r.ok).toList().sortedByLatency.firstOrNull;
+      Telemetry.breadcrumb('dns', 'auto mode picked ${winner?.label ?? 'nothing (all failed)'}');
       if (winner == null || winner.label == 'Système') return null;
       final server = servers.where((s) => s.name == winner.label).firstOrNull;
       return server == null ? null : _resolverFor(server);
   }
-});
+}
 
 /// Keeps [DnsRuntime.resolver] (read by [AppHttpOverrides]) in sync with the active setting.
 final dnsRuntimeSyncProvider = Provider<void>((ref) {
@@ -142,12 +157,23 @@ class DnsProxy extends AsyncNotifier<int?> {
     if (resolver == null) {
       await old?.stop();
       _proxy = null;
+      Telemetry.tags({'dns_proxy_port': null});
       return null;
     }
     final proxy = LocalDnsProxy(resolver);
-    final port = await proxy.start();
+    final int port;
+    try {
+      port = await proxy.start();
+    } catch (e, st) {
+      Telemetry.exception(e, st, category: 'dns', data: {'resolver': '$resolver'});
+      rethrow;
+    }
     await old?.stop();
     _proxy = proxy;
+    // Any settings change restarts the proxy on a new port (see the roadmap), while an open
+    // player keeps the old one: the player compares this with the port it was given.
+    Telemetry.breadcrumb('dns', 'proxy listening on $port (previous ${old?.port ?? 'none'})', data: {'resolver': '$resolver'});
+    Telemetry.tags({'dns_proxy_port': port});
     return port;
   }
 }
@@ -182,9 +208,13 @@ Future<List<DnsProbeResult>> probeDns(String host, List<DnsServer> servers) asyn
     }
   }
 
-  return Future.wait([
+  final results = await Future.wait([
     run('Système', const SystemResolver()),
     for (final s in servers.where((s) => s.dohUrl != null || s.addresses.isNotEmpty))
       run(s.name, _resolverFor(s) ?? const SystemResolver()),
   ]);
+  Telemetry.breadcrumb('dns', 'probe of $host', data: {
+    for (final r in results) r.label: r.ok ? '${r.latency?.inMilliseconds} ms' : 'failed',
+  });
+  return results;
 }
