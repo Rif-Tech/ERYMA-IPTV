@@ -12,7 +12,9 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
-import '../shell/app_shell.dart' show topLeftFocusable;
+import '../../core/log/remote_key_tracker.dart';
+import '../../core/log/trace_tag.dart';
+import '../../widgets/row_focus_chain.dart';
 
 class _Query extends Notifier<String> {
   @override
@@ -40,26 +42,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   // is narrower than and centered differently from the rails below it, so Flutter's geometric
   // `focusInDirection` can land on the 2nd/3rd card instead of the 1st.
   final _resultsScope = FocusScopeNode(debugLabel: 'search-results');
+  // One scope per result row, chained below the field by RowFocusChain (same model as home).
+  final _channelsScope = FocusScopeNode(debugLabel: 'search-channels');
+  final _moviesScope = FocusScopeNode(debugLabel: 'search-movies');
+  final _seriesScope = FocusScopeNode(debugLabel: 'search-series');
   // A focused TextField swallows the vertical arrows (cursor to line start/end), which strands a
   // D-pad user in the field: hand them to focus traversal so DOWN reaches the results.
   late final _fieldFocus = FocusNode(
     debugLabel: 'search',
     onKeyEvent: (node, event) {
       if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
-      if (event.logicalKey == LogicalKeyboardKey.arrowDown) return _focusFirstResult() ? KeyEventResult.handled : KeyEventResult.ignored;
-      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-        return node.focusInDirection(TraversalDirection.up) ? KeyEventResult.handled : KeyEventResult.ignored;
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        final ok = _focusFirstResult();
+        RemoteKeyTracker.note(ok ? 'search: field → first result row' : 'search: field, no results below');
+        return ok ? KeyEventResult.handled : KeyEventResult.ignored;
       }
+      // Up: unhandled here, so the tab bridge takes it straight to the tab bar.
       return KeyEventResult.ignored;
     },
   );
   Timer? _debounce;
 
   bool _focusFirstResult() {
-    final target = _resultsScope.focusedChild ?? topLeftFocusable(_resultsScope);
-    if (target == null) return false;
-    target.requestFocus();
-    return true;
+    for (final row in [_channelsScope, _moviesScope, _seriesScope]) {
+      final target = rowEntryOf(row);
+      if (target == null) continue;
+      target.requestFocus();
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -68,6 +79,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _controller.dispose();
     _fieldFocus.dispose();
     _resultsScope.dispose();
+    _channelsScope.dispose();
+    _moviesScope.dispose();
+    _seriesScope.dispose();
     super.dispose();
   }
 
@@ -97,7 +111,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final g = context.tokens.pageGutter;
 
     return Responsive(
-      builder: (context, form) => Column(
+      builder: (context, form) => TraceTag('search', child: RowFocusChain(
+        name: 'search-chain',
+        rows: [_fieldFocus, _channelsScope, _moviesScope, _seriesScope],
+        child: Column(
         children: [
           Padding(
             padding: EdgeInsets.fromLTRB(g, top + 12, g, 8),
@@ -148,7 +165,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
                       children: [
                     if (r.channels.isNotEmpty)
-                      Shelf(
+                      TraceTag('live', child: FocusScope(node: _channelsScope, child: Shelf(
                         title: l10n.liveTv,
                         itemCount: r.channels.length,
                         itemWidth: channelW,
@@ -170,9 +187,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             ),
                           );
                         },
-                      ),
+                      ))),
                     if (r.movies.isNotEmpty)
-                      Shelf(
+                      TraceTag('movies', child: FocusScope(node: _moviesScope, child: Shelf(
                         title: l10n.movies,
                         itemCount: r.movies.length,
                         itemWidth: posterW,
@@ -186,9 +203,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             onTap: () => context.push(Routes.movie(m.streamId)),
                           );
                         },
-                      ),
+                      ))),
                     if (r.series.isNotEmpty)
-                      Shelf(
+                      TraceTag('series', child: FocusScope(node: _seriesScope, child: Shelf(
                         title: l10n.series,
                         itemCount: r.series.length,
                         itemWidth: posterW,
@@ -202,7 +219,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             onTap: () => context.push(Routes.seriesDetail(s.seriesId)),
                           );
                         },
-                      ),
+                      ))),
                     ],
                   ),
                   ),
@@ -212,6 +229,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
         ],
       ),
+      )),
     );
   }
 }

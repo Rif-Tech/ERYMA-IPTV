@@ -697,8 +697,12 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String dnsTestIpHost(String host) {
-    return 'Cette playlist utilise une adresse IP ($host) : aucun DNS n\'intervient. Si votre fournisseur d\'accès la bloque, changer de DNS n\'y changera rien.';
+    return 'Cette playlist utilise une adresse IP ($host) : le DNS ne s\'applique pas à elle. Les serveurs ci-dessous ont été testés sur un autre site.';
   }
+
+  @override
+  String get dnsIpPlaylistNote =>
+      'Votre playlist utilise une adresse IP directe : le DNS choisi ici ne changera pas la façon de la joindre (il s\'applique quand même aux autres connexions de l\'app).';
 
   @override
   String get dnsTestNoPlaylist => 'Aucune liste de lecture active à tester.';

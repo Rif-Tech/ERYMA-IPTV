@@ -107,7 +107,7 @@ abstract final class Telemetry {
 
   // Also sent as Sentry Logs, so a whole session can be searched there (breadcrumbs only travel
   // with an event, 200 at most). `dpad` logs its own, richer line once the focus has settled.
-  static const _loggedCategories = {'navigation', 'player', 'dns', 'layout', 'mpv'};
+  static const _loggedCategories = {'navigation', 'player', 'dns', 'layout', 'mpv', 'scroll', 'focus'};
 
   static void breadcrumb(String category, String message, {Map<String, Object?>? data, SentryLevel level = SentryLevel.info, String? type}) {
     if (!enabled) return;

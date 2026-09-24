@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multiptv/features/home/home_screen.dart';
+import 'package:multiptv/widgets/row_focus_chain.dart';
 
 /// Home page rows as the remote sees them: hero, an empty conditional shelf, two shelves, footer.
 void main() {
@@ -25,8 +25,10 @@ void main() {
   Future<void> pump(WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-        body: HomeFocusChain(
+        body: RowFocusChain(
+          name: 'test-chain',
           rows: [hero, emptyShelf, shelfA, shelfB, footer],
+          isolated: {footer},
           child: Column(
             children: [
               row(hero, ['play', 'info']),

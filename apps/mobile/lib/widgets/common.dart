@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/responsive.dart';
 import '../app/theme.dart';
 import '../core/images/artwork_cache.dart';
-import '../core/log/remote_key_tracker.dart';
+import 'row_focus_chain.dart';
 
 /// Focus-aware card: scales up and shows a white ring when focused (D-pad) or hovered.
 class FocusableCard extends ConsumerStatefulWidget {
@@ -435,6 +435,7 @@ class Shelf extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final gutter = padding ?? EdgeInsets.symmetric(horizontal: context.tokens.pageGutter);
     final lite = ref.watch(performanceModeProvider);
+    final shelfContext = context;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -457,22 +458,15 @@ class Shelf extends ConsumerWidget {
               addRepaintBoundaries: false,
               itemBuilder: (context, i) => Padding(
                 padding: EdgeInsets.only(right: gap),
-                // Flutter never auto-scrolls a generic focusable into view (only EditableText
-                // does): bring a newly focused card fully into the page's vertical viewport,
-                // otherwise a row that is only partly visible when the D-pad reaches it (top bar
-                // still sliding away, or the next row peeking in) stays clipped. Vertical only
-                // (Scrollable.maybeOf(..., axis: vertical)), so this never re-centers the item
-                // within this Shelf's own horizontal scroll.
+                // Flutter never auto-scrolls a generic focusable into view vertically: show the
+                // whole section (title + cards) with minimal page movement. Centring the card here
+                // used to scroll on every Left/Right and put the next section in the middle of the
+                // screen, then a second correction made the page bounce.
                 child: Focus(
                   canRequestFocus: false,
                   skipTraversal: true,
                   onFocusChange: (f) {
-                    if (!f) return;
-                    final position = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
-                    final renderObject = context.findRenderObject();
-                    if (position == null || renderObject == null) return;
-                    RemoteKeyTracker.note('shelf: card $i focused, page scrolls to center it');
-                    position.ensureVisible(renderObject, alignment: 0.5, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+                    if (f && shelfContext.mounted) revealSection(shelfContext, reason: 'shelf card $i');
                   },
                   child: itemBuilder(context, i),
                 ),

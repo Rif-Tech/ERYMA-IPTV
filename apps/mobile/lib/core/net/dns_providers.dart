@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app/config.dart';
 import '../api/portal_api.dart';
 import '../db/database.dart';
 import '../device/device_identity.dart';
@@ -92,6 +93,12 @@ final dnsProbeHostProvider = FutureProvider<String?>((ref) async {
   return Uri.tryParse(url)?.host;
 });
 
+/// Host to probe DNS servers against: the playlist's own host, or, when the playlist is reached by
+/// a plain IP address (no DNS involved for it at all), the app's API host so the probe still tells
+/// which servers answer.
+String dnsProbeTarget(String playlistHost) =>
+    InternetAddress.tryParse(playlistHost) == null ? playlistHost : Uri.parse(AppConfig.apiBaseUrl).host;
+
 /// Builds the resolver implied by the current settings (null = use the system/operator DNS).
 /// `auto` probes every enabled server against [dnsProbeHostProvider] and keeps the fastest one.
 final activeDnsResolverProvider = FutureProvider<DnsResolver?>((ref) async {
@@ -130,7 +137,7 @@ Future<DnsResolver?> _buildResolver(Ref ref, AppSettings settings) async {
       final host = await ref.watch(dnsProbeHostProvider.future);
       if (host == null) return null;
       final servers = await ref.watch(dnsServersProvider.future);
-      final results = await probeDns(host, servers);
+      final results = await probeDns(dnsProbeTarget(host), servers);
       final winner = results.where((r) => r.ok).toList().sortedByLatency.firstOrNull;
       Telemetry.breadcrumb('dns', 'auto mode picked ${winner?.label ?? 'nothing (all failed)'}');
       if (winner == null || winner.label == 'Système') return null;

@@ -12,6 +12,7 @@ import '../content/content_providers.dart' show SpecialCategory;
 import '../live/live_screen.dart' show selectedCategoryProvider;
 import '../search/search_screen.dart' show resetSearch;
 import '../../core/log/remote_key_tracker.dart';
+import '../../core/log/telemetry.dart';
 import '../../core/log/trace_tag.dart';
 
 class _Destination {
@@ -64,6 +65,37 @@ final bodyScopeProvider = Provider<FocusScopeNode>((ref) {
   return node;
 });
 
+/// Bumped whenever a page is opened from the tab bar: pages holding their own focus memory (home
+/// rows) listen to it and start over, as if never visited.
+final pageResetProvider = NotifierProvider<PageReset, int>(PageReset.new);
+
+class PageReset extends Notifier<int> {
+  @override
+  int build() => 0;
+  void bump() => state++;
+}
+
+/// Jumps every scrollable of the visible page back to its start (page, rows, grids, lists).
+/// Offstage tabs are skipped: only the page being opened is reset.
+int _resetScrollables(Element root) {
+  var count = 0;
+  void visit(Element e) {
+    final w = e.widget;
+    if (w is Offstage && w.offstage) return;
+    if (e is StatefulElement && e.state is ScrollableState) {
+      final position = (e.state as ScrollableState).position;
+      if (position.hasPixels && position.pixels != position.minScrollExtent) {
+        position.jumpTo(position.minScrollExtent);
+        count++;
+      }
+    }
+    e.visitChildElements(visit);
+  }
+
+  root.visitChildElements(visit);
+  return count;
+}
+
 /// Scope of the tab bar; keeps directional traversal from leaking into the page below.
 final _barScopeProvider = Provider<FocusScopeNode>((ref) {
   final node = FocusScopeNode(debugLabel: 'topbar-scope');
@@ -99,7 +131,9 @@ class _TvFocusBridge extends ConsumerWidget {
       canRequestFocus: false,
       skipTraversal: true,
       onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        // Repeats too: holding Up must go all the way to the tab bar instead of stopping on the
+        // first row of the page and needing one more press.
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
         final current = FocusManager.instance.primaryFocus;
         if (current == null) return KeyEventResult.ignored;
         // A bare scope (content emptied under the cursor) reports directional moves as successful
@@ -188,34 +222,32 @@ class _AppShellState extends ConsumerState<AppShell> {
     final tabNodes = ref.watch(_tabFocusNodesProvider);
     final bodyScope = ref.watch(bodyScopeProvider);
 
-    // Moves the D-pad cursor into the new page's content after a header tap. Scheduled as a
-    // post-frame callback so it runs after that page's own autofocus (if any) has already
-    // resolved for the frame, making the outcome deterministic instead of racing it.
-    void focusContent() => WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Opening a page from the tab bar shows it as if never visited: root route (no detail
+    // screen), default category, empty search, every list scrolled back to its start, and the
+    // D-pad cursor on the page's first element. Post-frame so the page has rebuilt first.
+    void resetAndFocusContent(String route) => WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          final remembered = bodyScope.focusedChild;
-          final child = (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(bodyScope);
-          (child ?? bodyScope).requestFocus();
+          final root = bodyScope.context;
+          final jumped = root is Element ? _resetScrollables(root) : 0;
+          // A second frame: the lists must lay out at their start before "top-left" means anything.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final child = topLeftFocusable(bodyScope);
+            (child ?? bodyScope).requestFocus();
+            Telemetry.breadcrumb('focus', 'page reset: $route', data: {'scrollables_reset': jumped, 'focus': TraceTag.pathOf(child)});
+          });
+          WidgetsBinding.instance.scheduleFrame();
         });
 
     void go(int i) {
-      if (i != _index) {
-        // Coming from another tab: a stale search stays otherwise, since Search is never disposed.
-        if (_destinations[i].route == Routes.search) resetSearch(ref);
-        // Home, Movies and Series always come back to their root grid, never to the last detail
-        // opened from them (the header tab is meant as a hard reset, not "resume where I was").
-        if (_destinations[i].route == Routes.home ||
-            _destinations[i].route == Routes.movies ||
-            _destinations[i].route == Routes.series) {
-          if (_destinations[i].route == Routes.movies) ref.read(selectedCategoryProvider(ContentKind.vod).notifier).select(SpecialCategory.all);
-          if (_destinations[i].route == Routes.series) ref.read(selectedCategoryProvider(ContentKind.series).notifier).select(SpecialCategory.all);
-          widget.shell.goBranch(i, initialLocation: true);
-          focusContent();
-          return;
-        }
-      }
-      widget.shell.goBranch(i, initialLocation: i == _index);
-      focusContent();
+      final route = _destinations[i].route;
+      if (route == Routes.search) resetSearch(ref);
+      if (route == Routes.live) ref.read(selectedCategoryProvider(ContentKind.live).notifier).select(SpecialCategory.all);
+      if (route == Routes.movies) ref.read(selectedCategoryProvider(ContentKind.vod).notifier).select(SpecialCategory.all);
+      if (route == Routes.series) ref.read(selectedCategoryProvider(ContentKind.series).notifier).select(SpecialCategory.all);
+      ref.read(pageResetProvider.notifier).bump();
+      widget.shell.goBranch(i, initialLocation: true);
+      resetAndFocusContent(route);
     }
 
     // Nested routes (details) pop on their own; this only runs when a root tab is showing.

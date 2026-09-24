@@ -255,6 +255,13 @@ class SettingsScreen extends ConsumerWidget {
           ),
           if (s.dnsMode == DnsMode.server) const _DnsServerPickerTile(),
           if (s.dnsMode == DnsMode.custom) const _DnsCustomAddressesTile(),
+          // Changing DNS stays allowed, but say plainly when it cannot affect this playlist.
+          if (playlist != null && InternetAddress.tryParse(Uri.tryParse(playlist.url)?.host ?? '') != null)
+            ListTile(
+              enabled: false,
+              leading: const Icon(Icons.info_outline),
+              title: Text(l10n.dnsIpPlaylistNote),
+            ),
           const _DnsTestTile(),
         ]),
         _Section(l10n.about, [
@@ -678,28 +685,17 @@ class _DnsTestTileState extends ConsumerState<_DnsTestTile> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).dnsTestNoPlaylist)));
         return;
       }
-      if (InternetAddress.tryParse(host) != null) {
-        // The panel is reached by IP (Sentry FLUTTER-A: every custom DNS "failed" resolving an IP):
-        // no DNS is ever involved for this playlist, so testing or changing one cannot help.
-        if (mounted) {
-          await showDialog<void>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: Text(AppLocalizations.of(context).dnsTest),
-              content: Text(AppLocalizations.of(context).dnsTestIpHost(host)),
-              actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).close))],
-            ),
-          );
-        }
-        return;
-      }
+      // A playlist reached by IP never uses DNS: the test then checks the servers on the app's
+      // own API host and says so, instead of showing every server as failed (Sentry FLUTTER-A).
+      final ipHost = InternetAddress.tryParse(host) != null;
+      final target = dnsProbeTarget(host);
       final servers = ref.read(dnsServersProvider).value ?? kBuiltinDnsServers;
-      final results = await probeDns(host, servers);
+      final results = await probeDns(target, servers);
       unawaited(Telemetry.capture(
         'dns',
         'DNS test run (${results.where((r) => r.ok).length}/${results.length} ok)',
         level: SentryLevel.info,
-        data: {'host': host, for (final r in results) r.label: r.ok ? '${r.latency?.inMilliseconds} ms' : 'failed'},
+        data: {'host': host, 'probed_host': target, 'ip_playlist': ipHost, for (final r in results) r.label: r.ok ? '${r.latency?.inMilliseconds} ms' : 'failed'},
         fingerprint: ['dns-test'],
         throttle: const Duration(minutes: 1),
       ));
@@ -714,6 +710,11 @@ class _DnsTestTileState extends ConsumerState<_DnsTestTile> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (ipHost)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(AppLocalizations.of(context).dnsTestIpHost(host), style: Theme.of(context).textTheme.bodySmall),
+                  ),
                 for (final r in results)
                   ListTile(
                     dense: true,

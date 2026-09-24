@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,23 +8,25 @@ import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
-import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/trace_tag.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
+import '../../widgets/row_focus_chain.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
-import '../shell/app_shell.dart' show topLeftFocusable;
+import '../shell/app_shell.dart' show pageResetProvider;
 import 'featured_provider.dart';
 import 'hero_carousel.dart';
 
 FocusScopeNode _scope(Ref ref, String label) {
   final node = FocusScopeNode(debugLabel: label);
-  ref.onDispose(node.dispose);
+  // Invalidated on a page reset while its FocusScope is still mounted: dispose once the page has
+  // rebuilt with the new node, not under the widget still holding it.
+  ref.onDispose(() => WidgetsBinding.instance.addPostFrameCallback((_) => node.dispose()));
   return node;
 }
 
@@ -44,76 +45,6 @@ final _footerButtonFocusProvider = Provider<FocusNode>((ref) {
   ref.onDispose(node.dispose);
   return node;
 });
-
-/// Where focus lands when entering [row]: the card it last held, else its top-left one, else the
-/// row itself when it is a plain node (footer button). Null when the row has nothing to focus
-/// (an empty conditional shelf, the hero while it loads): the chain skips it.
-FocusNode? _entryOf(FocusNode row) {
-  if (row is FocusScopeNode) {
-    final remembered = row.focusedChild;
-    if (remembered != null && remembered.canRequestFocus && row.traversalDescendants.contains(remembered)) return remembered;
-    return topLeftFocusable(row);
-  }
-  return row.canRequestFocus && row.context != null ? row : null;
-}
-
-/// A card's own onFocusChange (in [Shelf]) scrolls it into view, but between shelves of very
-/// different heights that scroll can overshoot; reissue it once the first one has settled.
-void _correctScroll(FocusNode target) {
-  Future.delayed(const Duration(milliseconds: 260), () {
-    final ctx = target.context;
-    if (ctx == null || !target.hasFocus) return;
-    // ignore: use_build_context_synchronously
-    Scrollable.ensureVisible(ctx, alignment: 0.5, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
-  });
-}
-
-/// Vertical D-pad navigation of the home page, as an explicit chain rather than Flutter's
-/// geometric traversal (which, across rows of very different heights, skipped shelves or got
-/// stuck): hero (Voir/Infos) or quick links → Continue watching → Recent channels → New movies →
-/// New series → Changer de playlist, and back. Rows with nothing to focus are skipped. Up from the
-/// first row is left unhandled so the shell's bridge takes it to the tab bar.
-@visibleForTesting
-class HomeFocusChain extends StatelessWidget {
-  const HomeFocusChain({super.key, required this.rows, required this.child});
-  final List<FocusNode> rows;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      canRequestFocus: false,
-      skipTraversal: true,
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        final current = FocusManager.instance.primaryFocus;
-        if (current == null) return KeyEventResult.ignored;
-        final i = rows.indexWhere((r) => r == current || current.ancestors.contains(r));
-        if (i < 0) return KeyEventResult.ignored;
-        // The footer button is alone on its row: Left/Right must not wander into a shelf.
-        if ((key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) && rows[i] is! FocusScopeNode) {
-          RemoteKeyTracker.note('home-chain: left/right blocked on footer');
-          return KeyEventResult.handled;
-        }
-        final down = key == LogicalKeyboardKey.arrowDown;
-        if (!down && key != LogicalKeyboardKey.arrowUp) return KeyEventResult.ignored;
-        for (var j = down ? i + 1 : i - 1; j >= 0 && j < rows.length; j += down ? 1 : -1) {
-          final target = _entryOf(rows[j]);
-          if (target == null) continue;
-          RemoteKeyTracker.note('home-chain: ${down ? 'down' : 'up'} row $i → row $j (${TraceTag.pathOf(target)})');
-          target.requestFocus();
-          _correctScroll(target);
-          return KeyEventResult.handled;
-        }
-        // Down on the last row: stay put. Up on the first row: the tab bar (_TvFocusBridge).
-        RemoteKeyTracker.note(down ? 'home-chain: down on last row, stays' : 'home-chain: up from first row → tab bar');
-        return down ? KeyEventResult.handled : KeyEventResult.ignored;
-      },
-      child: child,
-    );
-  }
-}
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -134,6 +65,12 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
+    // Opened from the tab bar: every row forgets its last card, as if never visited.
+    ref.listen(pageResetProvider, (_, _) {
+      for (final p in [_heroScopeProvider, _quickLinksScopeProvider, _continueWatchingScopeProvider, _recentChannelsScopeProvider, _newMoviesScopeProvider, _newSeriesScopeProvider]) {
+        ref.invalidate(p);
+      }
+    });
     final hero = ref.watch(featuredHeroProvider((playlist.id, l10n.series)));
     final heroScope = ref.watch(_heroScopeProvider);
     final quickLinksScope = ref.watch(_quickLinksScopeProvider);
@@ -149,8 +86,12 @@ class HomeScreen extends ConsumerWidget {
     return Responsive(
       builder: (context, form) {
         final heroItems = hero.value ?? const <HeroItem>[];
-        return TraceTag('home', child: HomeFocusChain(
+        // Vertical order of the page: hero (Voir/Infos) or quick links → Continue watching →
+        // Recent channels → New movies → New series → Changer de playlist, and back.
+        return TraceTag('home', child: RowFocusChain(
+          name: 'home-chain',
           rows: [heroScope, quickLinksScope, continueWatchingScope, recentChannelsScope, newMoviesScope, newSeriesScope, footerFocus],
+          isolated: {footerFocus},
           child: CustomScrollView(
             // The hero draws under the top bar; only pad when there is no hero to sit behind it.
             slivers: [

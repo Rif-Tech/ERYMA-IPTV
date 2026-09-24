@@ -1367,8 +1367,14 @@ abstract class AppLocalizations {
   /// No description provided for @dnsTestIpHost.
   ///
   /// In en, this message translates to:
-  /// **'This playlist uses an IP address ({host}): no DNS is involved. If your internet provider blocks it, changing DNS will not help.'**
+  /// **'This playlist uses an IP address ({host}): DNS does not apply to it. The servers below were tested on another site.'**
   String dnsTestIpHost(String host);
+
+  /// No description provided for @dnsIpPlaylistNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Your playlist uses a direct IP address: the DNS chosen here will not change how it is reached (it still applies to the app\'s other connections).'**
+  String get dnsIpPlaylistNote;
 
   /// No description provided for @dnsTestNoPlaylist.
   ///
