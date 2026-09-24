@@ -510,6 +510,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   // ---- Keys ---------------------------------------------------------------
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    // Self-heal a lost focus instead of leaving the D-pad "stuck": a button's own rebuild (e.g.
+    // skip_next's ValueListenableBuilder rebuilding after _next() zaps the channel while it was
+    // focused) can leave primaryFocus null, with nothing left to receive the next key event's
+    // bubble chain — the overlay then stops responding to the D-pad until it is hidden and
+    // re-shown (which happens to refocus Play). Catch it here instead, on whichever key notices.
+    if (_overlay && FocusManager.instance.primaryFocus == null) {
+      _playFocus.requestFocus();
+    }
     final key = event.logicalKey;
     final isLeft = key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.mediaRewind;
     final isRight = key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.mediaFastForward;
@@ -643,14 +651,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       child: Scaffold(
         backgroundColor: Colors.black,
         body: Focus(
-          // Never a focus target itself (only relays key events via bubbling): if this whole-screen
-          // node were focusable, it would compete with the transport buttons' own autofocus on
-          // launch, and any directional move that fails to find its next candidate could fall back
-          // to it — leaving primary focus on a screen-sized node that default traversal can't
-          // usefully navigate from, which looks like the D-pad "getting stuck" until the overlay is
-          // hidden and re-shown (which explicitly refocuses Play).
-          canRequestFocus: false,
-          skipTraversal: true,
+          // A screen-sized fallback target: if a directional move fails to find its next candidate,
+          // or the initial autofocus race lands here instead of on a transport button, default
+          // traversal has nowhere useful to go from a node this size — every subsequent arrow key
+          // looks "stuck" until the overlay is hidden and re-shown (which explicitly refocuses
+          // Play). Rather than opting out of focus entirely (which left nothing focused at all, so
+          // key events never reached this handler in the first place), immediately hand focus to
+          // Play whenever this node ends up holding it.
+          autofocus: true,
+          onFocusChange: (hasFocus) {
+            if (hasFocus) _playFocus.requestFocus();
+          },
           onKeyEvent: _onKey,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,

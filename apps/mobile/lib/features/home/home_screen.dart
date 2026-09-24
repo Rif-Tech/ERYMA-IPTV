@@ -17,25 +17,139 @@ import '../../widgets/format.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
-import '../shell/app_shell.dart' show topLeftFocusable;
+import '../shell/app_shell.dart' show bodyScopeProvider, topLeftFocusable;
 import 'featured_provider.dart';
 import 'hero_carousel.dart';
 
-/// Scope of the last shelf on the home page, so the footer's Up key can return focus to exactly
-/// that row instead of Flutter's geometric traversal, which can land elsewhere (see _Footer).
-final _lastShelfScopeProvider = Provider<FocusScopeNode>((ref) {
-  final node = FocusScopeNode(debugLabel: 'home-last-shelf');
+/// One stable FocusScope per shelf, in page order, so Up/Down can jump straight to the next
+/// *visible* one instead of trusting Flutter's geometric traversal across rows of very different
+/// heights (poster shelves vs. the short channel-logo row) — see [_shelfBoundary]. Continue
+/// watching and Recent channels are conditional (empty when nothing has been watched yet); an
+/// empty shelf's scope simply has no traversal descendants and is skipped by [visibleShelfScopes].
+final _continueWatchingScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'home-continue-watching');
+  ref.onDispose(node.dispose);
+  return node;
+});
+final _recentChannelsScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'home-recent-channels');
+  ref.onDispose(node.dispose);
+  return node;
+});
+final _newMoviesScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'home-new-movies');
+  ref.onDispose(node.dispose);
+  return node;
+});
+final _newSeriesScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'home-new-series');
   ref.onDispose(node.dispose);
   return node;
 });
 
-/// Scope of the first shelf ("Reprendre la lecture"), so Down from the hero's Lire/Infos buttons
-/// can target it directly instead of Flutter's geometric traversal (see [HeroCarousel]).
-final firstShelfScopeProvider = Provider<FocusScopeNode>((ref) {
-  final node = FocusScopeNode(debugLabel: 'home-first-shelf');
+/// Focus node for the footer's "Changer de playlist" button, so Down from the last visible shelf
+/// can target it directly (see the reciprocal Up handling in [_Footer]).
+final _footerButtonFocusProvider = Provider<FocusNode>((ref) {
+  final node = FocusNode(debugLabel: 'home-footer-button');
   ref.onDispose(node.dispose);
   return node;
 });
+
+/// All shelf scopes in page order (some possibly empty right now — see [visibleShelfScopes]).
+List<FocusScopeNode> _shelfScopes(WidgetRef ref) => [
+  ref.read(_continueWatchingScopeProvider),
+  ref.read(_recentChannelsScopeProvider),
+  ref.read(_newMoviesScopeProvider),
+  ref.read(_newSeriesScopeProvider),
+];
+
+/// [_shelfScopes] filtered to the ones currently holding a focusable card. Used by [HeroCarousel]
+/// (Down from Lire/Infos must land on the first *visible* shelf, which may not be Continue
+/// watching) and by [_Footer] (Up must land on the last visible one).
+List<FocusScopeNode> visibleShelfScopes(WidgetRef ref) => _shelfScopes(ref).where((s) => s.traversalDescendants.isNotEmpty).toList();
+
+/// The node a shelf should receive focus on: whichever card it last held, or its top-left one.
+FocusNode? shelfEntryFocus(FocusScopeNode scope) {
+  final remembered = scope.focusedChild;
+  return (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(scope);
+}
+
+/// Nearest focusable strictly below/above [origin] within [body], excluding [exclude] (the shelf
+/// [origin] itself belongs to). Used only to escape *above* the first visible shelf, to whatever
+/// Flutter's geometric traversal finds there (the hero's Lire/Infos, or the quick-links tiles when
+/// there is no hero) — every other jump in the shelf chain has an explicit next/previous scope and
+/// does not need this. A same-row sibling is excluded by scope membership rather than by comparing
+/// `rect.top` because the focus-zoom effect on cards shifts the focused one's top edge by a few
+/// pixels, which was enough for a sibling to spuriously look "below".
+FocusNode? _nearestVertical(FocusScopeNode body, FocusNode origin, FocusScopeNode exclude, {required bool below}) {
+  final o = origin.rect;
+  final excluded = exclude.traversalDescendants.toSet();
+  FocusNode? best;
+  for (final n in body.traversalDescendants) {
+    if (n == origin || excluded.contains(n)) continue;
+    final isCandidate = below ? n.rect.top > o.top + 1 : n.rect.top < o.top - 1;
+    if (!isCandidate) continue;
+    final closerRow = best == null || (below ? n.rect.top < best.rect.top - 1 : n.rect.top > best.rect.top + 1);
+    final sameRowCloserX = best != null && (n.rect.top - best.rect.top).abs() < 1 && (n.rect.left - o.left).abs() < (best.rect.left - o.left).abs();
+    if (closerRow || sameRowCloserX) best = n;
+  }
+  return best;
+}
+
+/// The card's own onFocusChange (in [Shelf]) already scrolls it into view, but for a jump between
+/// shelves of very different card heights that scroll can overshoot and leave the newly focused
+/// card off-screen — reissue it once the first scroll has settled, using fresh (not stale) geometry.
+void _correctScroll(FocusNode target) {
+  Future.delayed(const Duration(milliseconds: 260), () {
+    final ctx = target.context;
+    if (ctx == null || !target.hasFocus) return;
+    // ignore: use_build_context_synchronously
+    Scrollable.ensureVisible(ctx, alignment: 0.5, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+  });
+}
+
+/// Wraps a shelf so Up/Down jump straight to the previous/next *visible* shelf (see
+/// [visibleShelfScopes]) instead of trusting Flutter's geometric traversal, which — confined to a
+/// single-row scope — can spuriously "succeed" by bouncing to a same-row sibling, and even when it
+/// does cross into the next shelf can overshoot past it into a farther one. Down from the last
+/// visible shelf goes to the footer button; Up from the first visible one escapes to whatever is
+/// above the shelf chain (the hero, or quick-links when there is no hero).
+Widget _shelfBoundary({
+  required WidgetRef ref,
+  required FocusScopeNode scope,
+  required FocusScopeNode bodyScope,
+  required FocusNode footerFocus,
+  required Widget child,
+}) {
+  return Focus(
+    canRequestFocus: false,
+    skipTraversal: true,
+    onKeyEvent: (_, event) {
+      if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+      final down = event.logicalKey == LogicalKeyboardKey.arrowDown;
+      final up = event.logicalKey == LogicalKeyboardKey.arrowUp;
+      if (!down && !up) return KeyEventResult.ignored;
+      final current = FocusManager.instance.primaryFocus;
+      if (current == null || !scope.traversalDescendants.contains(current)) return KeyEventResult.ignored;
+      final visible = visibleShelfScopes(ref);
+      final i = visible.indexOf(scope);
+      if (i < 0) return KeyEventResult.ignored;
+      final FocusNode? target;
+      if (down) {
+        target = i + 1 < visible.length ? shelfEntryFocus(visible[i + 1]) : footerFocus;
+      } else if (i > 0) {
+        target = shelfEntryFocus(visible[i - 1]);
+      } else {
+        target = _nearestVertical(bodyScope, current, scope, below: false);
+      }
+      if (target == null) return KeyEventResult.ignored;
+      target.requestFocus();
+      _correctScroll(target);
+      return KeyEventResult.handled;
+    },
+    child: child,
+  );
+}
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -57,10 +171,18 @@ class HomeScreen extends ConsumerWidget {
     }
 
     final hero = ref.watch(featuredHeroProvider((playlist.id, l10n.series)));
-    final lastShelfScope = ref.watch(_lastShelfScopeProvider);
+    final continueWatchingScope = ref.watch(_continueWatchingScopeProvider);
+    final recentChannelsScope = ref.watch(_recentChannelsScopeProvider);
+    final newMoviesScope = ref.watch(_newMoviesScopeProvider);
+    final newSeriesScope = ref.watch(_newSeriesScopeProvider);
+    final bodyScope = ref.watch(bodyScopeProvider);
+    final footerFocus = ref.watch(_footerButtonFocusProvider);
     final account = decodeAccountInfo(playlist.accountInfo);
     final exp = account['exp_date'] != null && account['exp_date'] != 'null' ? DateTime.tryParse(account['exp_date']!) : playlist.expiresAt;
     final topInset = MediaQuery.paddingOf(context).top;
+
+    Widget boundary(FocusScopeNode scope, Widget child) =>
+        _shelfBoundary(ref: ref, scope: scope, bodyScope: bodyScope, footerFocus: footerFocus, child: FocusScope(node: scope, child: child));
 
     return Responsive(
       builder: (context, form) {
@@ -77,21 +199,18 @@ class HomeScreen extends ConsumerWidget {
             ),
             if (heroItems.isEmpty && !hero.isLoading)
               SliverToBoxAdapter(child: _QuickLinks(form: form)),
-            SliverToBoxAdapter(
-              child: FocusScope(node: ref.watch(firstShelfScopeProvider), child: _ContinueWatchingShelf(playlistId: playlist.id, form: form)),
-            ),
-            SliverToBoxAdapter(child: _RecentChannelsShelf(playlistId: playlist.id, form: form)),
-            SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: false)),
-            SliverToBoxAdapter(
-              child: FocusScope(node: lastShelfScope, child: _PosterShelf(playlistId: playlist.id, form: form, series: true)),
-            ),
+            SliverToBoxAdapter(child: boundary(continueWatchingScope, _ContinueWatchingShelf(playlistId: playlist.id, form: form))),
+            SliverToBoxAdapter(child: boundary(recentChannelsScope, _RecentChannelsShelf(playlistId: playlist.id, form: form))),
+            SliverToBoxAdapter(child: boundary(newMoviesScope, _PosterShelf(playlistId: playlist.id, form: form, series: false))),
+            SliverToBoxAdapter(child: boundary(newSeriesScope, _PosterShelf(playlistId: playlist.id, form: form, series: true))),
             SliverToBoxAdapter(
               child: _Footer(
                 playlist: playlist,
                 expires: exp,
                 account: account,
                 use24h: settings.use24hClock,
-                lastShelfScope: lastShelfScope,
+                shelfScopes: _shelfScopes(ref),
+                buttonFocus: footerFocus,
                 // Generous bottom room: TV overscan and the focus-scroll of the last shelf must never clip it.
                 padding: EdgeInsets.fromLTRB(context.tokens.pageGutter, 28, context.tokens.pageGutter, 72 + MediaQuery.paddingOf(context).bottom),
               ),
@@ -184,6 +303,7 @@ class _Footer extends StatelessWidget {
     required this.use24h,
     required this.padding,
     required this.lastShelfScope,
+    required this.buttonFocus,
   });
   final Playlist playlist;
   final DateTime? expires;
@@ -191,6 +311,7 @@ class _Footer extends StatelessWidget {
   final bool use24h;
   final EdgeInsets padding;
   final FocusScopeNode lastShelfScope;
+  final FocusNode buttonFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +357,13 @@ class _Footer extends StatelessWidget {
             ),
             _Clock(use24h: use24h),
             const SizedBox(width: 8),
-            PillButton(compact: true, icon: Icons.playlist_play_rounded, label: l10n.changePlaylist, onPressed: () => context.push(Routes.playlists)),
+            PillButton(
+              compact: true,
+              focusNode: buttonFocus,
+              icon: Icons.playlist_play_rounded,
+              label: l10n.changePlaylist,
+              onPressed: () => context.push(Routes.playlists),
+            ),
           ],
         ),
       ),
