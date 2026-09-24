@@ -39,7 +39,7 @@ Secrets Edge Functions à définir (Dashboard → Edge Functions → Secrets ou 
 7. **Validation** : `flutter test` (apps/mobile), `npx tsc --noEmit -p . && npm run lint` (apps/portal), `.\scripts\smoke-test.ps1`, puis parcours complet : inscription → ajout d'une liste → appairage TV via code → sélection de profil → lecture → vérification de `watch_progress` → révocation depuis `/account` → la TV revient à l'appairage.
 
 ```powershell
-# App Flutter (pointe par défaut sur le cloud ; surchargez avec --dart-define=API_BASE_URL/API_ANON_KEY/PORTAL_URL)
+# App Flutter (pointe par défaut sur le cloud ; surchargez avec --dart-define=API_BASE_URL/API_ANON_KEY/PORTAL_URL/SENTRY_DSN)
 cd apps/mobile
 flutter pub get
 dart run build_runner build -d

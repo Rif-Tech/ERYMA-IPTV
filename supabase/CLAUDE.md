@@ -14,6 +14,7 @@ Ce fichier ne contient que ce qui est propre au backend. Le transverse est dans 
 - **Appareils et appairage** : `devices` (`device_uuid` unique, `secret_hash`, status active/revoked), `pairing_sessions` (kind device|playlist, code unique parmi les sessions pending, `token_hash`, `secret_hash`, TTL 10 min).
 - **`watch_progress`** : unique sur `(profile_id, playlist_id, kind, item_id)`, un trigger exige l'accès via `profile_playlists`.
 - **`watch_events`** : pseudonyme, pas anonyme — chaque ligne porte `device_id` **et** `account_id` (dédoublonnage par appareil/titre/heure). Purge à 30 jours **opportuniste** : `purge_watch_events()` se déclenche environ une fois sur 50 dans `watch-events`, pas sur un cron. Supprimer un appareil supprime en cascade ses `watch_events` (perte de l'historique « populaires »).
+- **`app_logs`** : logs diagnostiques par appareil/compte (niveau, catégorie, message, `context` jsonb), même pattern que `watch_events` — purge à 48h opportuniste (`purge_app_logs()`, ~1 appel sur 20 dans `device-logs`), lecture admin/`service_role` seulement. Ne couvre pas les crashs natifs (voir Sentry, `apps/mobile/lib/main.dart`).
 - **Configuration** : `app_config` (clé → jsonb, non validée par un CHECK), `featured_items`, `dns_servers` (un seul `is_default`).
 - **Vues** `security_invoker` : `devices_with_status`, `accounts_overview`. Après un `ALTER` de la table source, supprime puis recrée la vue **et** son `GRANT`.
 
@@ -23,7 +24,7 @@ Ce fichier ne contient que ce qui est propre au backend. Le transverse est dans 
 |---|---|
 | `app-info`, `pairing-status` | Aucune (anonyme par conception) |
 | `pairing-create` | Aucune pour `kind=device` ; identité d'installation pour `kind=playlist` ou un ré-appairage |
-| `device-session`, `device-context`, `device-progress`, `featured`, `watch-events` | Identité d'installation (`x-device-id` + `x-device-secret`) |
+| `device-session`, `device-context`, `device-progress`, `featured`, `watch-events`, `device-logs` | Identité d'installation (`x-device-id` + `x-device-secret`) |
 | `tmdb` | Identité d'installation **ou** admin (`x-admin-token`) |
 | `pairing-confirm` | JWT utilisateur (Bearer) |
 

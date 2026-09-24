@@ -63,6 +63,7 @@ Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, f
 - Valeurs à haute fréquence (position, buffering) : `ValueNotifier`/`ValueListenableBuilder`, jamais un `setState` sur tout l'écran.
 - DNS ([core/net](lib/core/net)) : le proxy loopback n'écoute que sur 127.0.0.1 ; les URL DoH doivent être des IP littérales (un nom d'hôte boucle sur lui-même). `activeDnsResolverProvider` observe **tout** `settingsProvider` sans `.select` : n'importe quel réglage relance le proxy sur un nouveau port pendant que mpv garde l'ancien — voir la roadmap avant d'y toucher. Le libellé `'Système'` sert de sentinelle en mode auto : ne le traduis pas sans introduire un id.
 - Natif : un seul MethodChannel `'multiptv/platform'` ([native_platform.dart](lib/core/platform/native_platform.dart)) ; réponds `result.success(false)` si l'API demandée n'existe pas.
+- **Logs diagnostiques** ([core/log](lib/core/log)) : `ref.read(appLoggerProvider).error/warn/info/debug(category, message, context:)` journalise en local (comme `debugPrint`) et vers `device-logs` (Supabase, table `app_logs`, 48h), avec debounce 15 s + flush au passage en arrière-plan. Ne couvre pas les crashs natifs (mpv/MediaCodec/pilote GPU) : c'est le rôle de Sentry (`SENTRY_DSN`, `main.dart`), inactif sans DSN configuré. N'y journalise jamais un identifiant, un mot de passe ou une URL de playlist.
 
 ## UI TV
 

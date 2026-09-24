@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/router.dart';
 import '../../core/db/database.dart';
+import '../../core/log/app_logger.dart';
 import '../../core/player/playback.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -30,43 +31,63 @@ Future<void> openTrailer(String trailer) {
   return launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 }
 
+/// Reports a failure that would otherwise leave the OK press looking entirely ignored (a DB read
+/// or navigation throwing between the button and the player actually opening). Logged (not just
+/// shown) so a pattern of failures is visible without the user reporting it by hand.
+void _reportPlaybackFailure(BuildContext context, WidgetRef ref, {String reason = 'unknown', Object? error}) {
+  ref.read(appLoggerProvider).error('playback', 'could not start playback ($reason)', context: error == null ? null : {'error': '$error'});
+  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).playbackError)));
+}
+
 /// Plays [channels] starting at [index]; asks for the parental PIN when the channel is locked.
 Future<void> playChannels(BuildContext context, WidgetRef ref, List<Channel> channels, int index) async {
-  final resolver = ref.read(streamResolverProvider);
-  if (resolver == null) return;
-  final locked = ref.read(lockedChannelsProvider(resolver.playlist.id)).value ?? const {};
-  if (locked.contains(channels[index].streamId)) {
-    final l10n = AppLocalizations.of(context);
-    final ok = await requirePin(context, ref.read(settingsProvider).parentalPin, title: l10n.channelLocked);
-    if (!ok || !context.mounted) return;
+  try {
+    final resolver = ref.read(streamResolverProvider);
+    if (resolver == null) return _reportPlaybackFailure(context, ref, reason: 'no resolver');
+    final locked = ref.read(lockedChannelsProvider(resolver.playlist.id)).value ?? const {};
+    if (locked.contains(channels[index].streamId)) {
+      final l10n = AppLocalizations.of(context);
+      final ok = await requirePin(context, ref.read(settingsProvider).parentalPin, title: l10n.channelLocked);
+      if (!ok || !context.mounted) return;
+    }
+    // Locked channels are skipped while zapping.
+    final playable = <Channel>[];
+    var startIndex = 0;
+    for (final (i, c) in channels.indexed) {
+      if (locked.contains(c.streamId) && i != index) continue;
+      if (i == index) startIndex = playable.length;
+      playable.add(c);
+    }
+    reportWatch(ref, kind: 'live', title: channels[index].name);
+    await openPlayer(context, PlaybackRequest(items: playable.map(resolver.channel).toList(), startIndex: startIndex));
+  } catch (e) {
+    // _reportPlaybackFailure itself checks context.mounted before touching it; the analyzer
+    // cannot see that across the function boundary.
+    // ignore: use_build_context_synchronously
+    _reportPlaybackFailure(context, ref, reason: 'channels', error: e);
   }
-  // Locked channels are skipped while zapping.
-  final playable = <Channel>[];
-  var startIndex = 0;
-  for (final (i, c) in channels.indexed) {
-    if (locked.contains(c.streamId) && i != index) continue;
-    if (i == index) startIndex = playable.length;
-    playable.add(c);
-  }
-  reportWatch(ref, kind: 'live', title: channels[index].name);
-  await openPlayer(context, PlaybackRequest(items: playable.map(resolver.channel).toList(), startIndex: startIndex));
 }
 
 Future<void> playMovie(BuildContext context, WidgetRef ref, Movie movie, {bool resume = true}) async {
-  final resolver = ref.read(streamResolverProvider);
-  if (resolver == null) return;
-  int? position;
-  if (resume) {
-    final h = await ref.read(databaseProvider).getHistory(resolver.playlist.id, ContentKind.vod, movie.streamId);
-    if (h != null && h.positionMs > 0 && (h.durationMs == 0 || h.positionMs < h.durationMs * 0.95)) {
-      position = h.positionMs;
+  try {
+    final resolver = ref.read(streamResolverProvider);
+    if (resolver == null) return _reportPlaybackFailure(context, ref, reason: 'no resolver');
+    int? position;
+    if (resume) {
+      final h = await ref.read(databaseProvider).getHistory(resolver.playlist.id, ContentKind.vod, movie.streamId);
+      if (h != null && h.positionMs > 0 && (h.durationMs == 0 || h.positionMs < h.durationMs * 0.95)) {
+        position = h.positionMs;
+      }
     }
+    if (!context.mounted) return;
+    // Panel info is only used when already cached; never delay playback for it.
+    final tmdb = int.tryParse(ref.read(movieInfoProvider(movie.streamId)).value?.tmdbId ?? '');
+    reportWatch(ref, kind: 'movie', title: movie.name, year: movie.year, tmdbId: tmdb);
+    await openPlayer(context, PlaybackRequest(items: [resolver.movie(movie)], startPositionMs: position));
+  } catch (e) {
+    // ignore: use_build_context_synchronously
+    _reportPlaybackFailure(context, ref, reason: 'movie', error: e);
   }
-  if (!context.mounted) return;
-  // Panel info is only used when already cached; never delay playback for it.
-  final tmdb = int.tryParse(ref.read(movieInfoProvider(movie.streamId)).value?.tmdbId ?? '');
-  reportWatch(ref, kind: 'movie', title: movie.name, year: movie.year, tmdbId: tmdb);
-  await openPlayer(context, PlaybackRequest(items: [resolver.movie(movie)], startPositionMs: position));
 }
 
 Future<void> playEpisodes(
@@ -77,23 +98,28 @@ Future<void> playEpisodes(
   required String seriesName,
   bool resume = true,
 }) async {
-  final resolver = ref.read(streamResolverProvider);
-  if (resolver == null) return;
-  int? position;
-  if (resume) {
-    final h = await ref.read(databaseProvider).getHistory(resolver.playlist.id, ContentKind.series, episodes[index].episodeId);
-    if (h != null && h.positionMs > 0 && (h.durationMs == 0 || h.positionMs < h.durationMs * 0.95)) {
-      position = h.positionMs;
+  try {
+    final resolver = ref.read(streamResolverProvider);
+    if (resolver == null) return _reportPlaybackFailure(context, ref, reason: 'no resolver');
+    int? position;
+    if (resume) {
+      final h = await ref.read(databaseProvider).getHistory(resolver.playlist.id, ContentKind.series, episodes[index].episodeId);
+      if (h != null && h.positionMs > 0 && (h.durationMs == 0 || h.positionMs < h.durationMs * 0.95)) {
+        position = h.positionMs;
+      }
     }
+    if (!context.mounted) return;
+    reportWatch(ref, kind: 'tv', title: seriesName);
+    await openPlayer(
+      context,
+      PlaybackRequest(
+        items: episodes.map((e) => resolver.episode(e, seriesName: seriesName)).toList(),
+        startIndex: index,
+        startPositionMs: position,
+      ),
+    );
+  } catch (e) {
+    // ignore: use_build_context_synchronously
+    _reportPlaybackFailure(context, ref, reason: 'episodes', error: e);
   }
-  if (!context.mounted) return;
-  reportWatch(ref, kind: 'tv', title: seriesName);
-  await openPlayer(
-    context,
-    PlaybackRequest(
-      items: episodes.map((e) => resolver.episode(e, seriesName: seriesName)).toList(),
-      startIndex: index,
-      startPositionMs: position,
-    ),
-  );
 }

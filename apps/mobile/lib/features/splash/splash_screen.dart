@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
+import '../../app/config.dart';
 import '../../app/router.dart';
 import '../../core/db/database.dart';
 import '../../core/device/device_identity.dart';
@@ -46,7 +48,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     // Last known portal URL first: the pairing QR code must never point at a build-time default.
     DeviceSessionNotifier.restorePortalUrl(ref.read(sharedPreferencesProvider));
     // Install identity next: every device call attaches it. No secret = never paired (or revoked).
-    await ref.read(deviceIdentityProvider.future);
+    final identity = await ref.read(deviceIdentityProvider.future);
+    // Lets a native crash (see player_screen.dart's decode ladder) be found by device_uuid, the
+    // same id the app_logs/Supabase pipeline is keyed on. No-op when no DSN is configured.
+    if (AppConfig.sentryDsn.isNotEmpty) {
+      Sentry.configureScope((scope) => scope.setTag('device_uuid', identity.uuid));
+    }
     final secret = await ref.read(installSecretProvider.future);
     if (!mounted) return;
     ref.read(profileControllerProvider.notifier).restore();

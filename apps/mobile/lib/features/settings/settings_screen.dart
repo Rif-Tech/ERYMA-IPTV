@@ -1,3 +1,8 @@
+// RadioListTile's per-tile groupValue/onChanged (used in _EnumTile / _DnsServerPickerTile below)
+// is deprecated in favor of a RadioGroup ancestor — deliberately not used here, see the comment
+// on _EnumTile's dialog: RadioGroup binds D-pad Up/Down to immediate selection, not just focus.
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -219,24 +224,10 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.color_lens_outlined),
             title: Text(l10n.subtitleColor),
-            trailing: Wrap(
-              spacing: 6,
-              children: [
-                for (final c in const [0xFFFFFFFF, 0xFFFFEB3B, 0xFF4FC3F7, 0xFF81C784, 0xFFFF8A65])
-                  InkWell(
-                    onTap: () => n.setSubtitleColor(c),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: Color(c),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: s.subtitleColor == c ? Colors.white : Colors.transparent, width: 2),
-                      ),
-                    ),
-                  ),
-              ],
+            trailing: _SubtitleColorTile(
+              colors: const [0xFFFFFFFF, 0xFFFFEB3B, 0xFF4FC3F7, 0xFF81C784, 0xFFFF8A65],
+              value: s.subtitleColor,
+              onChanged: n.setSubtitleColor,
             ),
           ),
           SwitchListTile(
@@ -412,6 +403,91 @@ class _SliderTileState extends State<_SliderTile> {
   }
 }
 
+/// Color swatch row for the D-pad, same pattern as [_SliderTile]: one focus node for the whole
+/// row (five separate small focusable circles are not reliably reachable by directional
+/// traversal), left/right immediately picks the next/previous color, up/down keep moving through
+/// the list.
+class _SubtitleColorTile extends StatefulWidget {
+  const _SubtitleColorTile({required this.colors, required this.value, required this.onChanged});
+  final List<int> colors;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_SubtitleColorTile> createState() => _SubtitleColorTileState();
+}
+
+class _SubtitleColorTileState extends State<_SubtitleColorTile> {
+  late final FocusNode _node = FocusNode(debugLabel: 'subtitle-color', onKeyEvent: _onKey);
+
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(_onFocus);
+  }
+
+  @override
+  void dispose() {
+    _node.removeListener(_onFocus);
+    _node.dispose();
+    super.dispose();
+  }
+
+  void _onFocus() => setState(() {});
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
+      // Runs before default traversal would even see this node as one stop: hand the key back.
+      final moved = node.focusInDirection(key == LogicalKeyboardKey.arrowUp ? TraversalDirection.up : TraversalDirection.down);
+      return moved ? KeyEventResult.handled : KeyEventResult.ignored;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) {
+      final i = widget.colors.indexOf(widget.value);
+      final next = i + (key == LogicalKeyboardKey.arrowRight ? 1 : -1);
+      if (next < 0 || next >= widget.colors.length) return KeyEventResult.ignored;
+      widget.onChanged(widget.colors[next]);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _node,
+      child: Wrap(
+        spacing: 12,
+        children: [
+          for (final c in widget.colors)
+            GestureDetector(
+              onTap: () => widget.onChanged(c),
+              child: Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: widget.value == c && _node.hasFocus ? Border.all(color: Colors.white, width: 2.5) : null,
+                ),
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: Color(c),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: widget.value == c ? Colors.white : Colors.transparent, width: 2),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// ListTile opening a radio dialog; works with D-pad and touch alike.
 class _EnumTile<T> extends StatelessWidget {
   const _EnumTile({
@@ -441,16 +517,20 @@ class _EnumTile<T> extends StatelessWidget {
           builder: (context) => SimpleDialog(
             title: Text(title),
             children: [
-              RadioGroup<T>(
-                groupValue: value,
-                onChanged: (v) => Navigator.pop(context, (v as T,)),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final v in values) RadioListTile<T>(autofocus: v == value, value: v, title: Text(label(v))),
-                  ],
+              // No RadioGroup ancestor on purpose (hence the deprecated per-tile groupValue/
+              // onChanged below, see the ignore_for_file at the top of this file): RadioGroup
+              // binds arrow keys to select-and-advance (see radio_group.dart), which would
+              // confirm and close the dialog on the first D-pad press instead of just moving
+              // focus. Do not "fix" this deprecation warning by migrating to RadioGroup without
+              // re-solving that problem first.
+              for (final v in values)
+                RadioListTile<T>(
+                  autofocus: v == value,
+                  value: v,
+                  groupValue: value,
+                  onChanged: (picked) => Navigator.pop(context, (picked as T,)),
+                  title: Text(label(v)),
                 ),
-              ),
             ],
           ),
         );
@@ -480,22 +560,16 @@ class _DnsServerPickerTile extends ConsumerWidget {
           builder: (context) => SimpleDialog(
             title: Text(l10n.dnsServer),
             children: [
-              RadioGroup<String>(
-                groupValue: selected?.id ?? '',
-                onChanged: (v) => Navigator.pop(context, (v as String,)),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final d in servers)
-                      RadioListTile<String>(
-                        autofocus: d.id == selected?.id,
-                        value: d.id,
-                        title: Text(d.name),
-                        subtitle: d.addresses.isNotEmpty ? Text(d.addresses.first) : null,
-                      ),
-                  ],
+              // See _EnumTile: no RadioGroup ancestor, so Up/Down only move focus.
+              for (final d in servers)
+                RadioListTile<String>(
+                  autofocus: d.id == selected?.id,
+                  value: d.id,
+                  groupValue: selected?.id ?? '',
+                  onChanged: (picked) => Navigator.pop(context, (picked as String,)),
+                  title: Text(d.name),
+                  subtitle: d.addresses.isNotEmpty ? Text(d.addresses.first) : null,
                 ),
-              ),
             ],
           ),
         );

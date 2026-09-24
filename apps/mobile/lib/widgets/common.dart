@@ -456,7 +456,24 @@ class Shelf extends ConsumerWidget {
               addRepaintBoundaries: false,
               itemBuilder: (context, i) => Padding(
                 padding: EdgeInsets.only(right: gap),
-                child: itemBuilder(context, i),
+                // Flutter never auto-scrolls a generic focusable into view (only EditableText
+                // does): bring a newly focused card fully into the page's vertical viewport,
+                // otherwise a row that is only partly visible when the D-pad reaches it (top bar
+                // still sliding away, or the next row peeking in) stays clipped. Vertical only
+                // (Scrollable.maybeOf(..., axis: vertical)), so this never re-centers the item
+                // within this Shelf's own horizontal scroll.
+                child: Focus(
+                  canRequestFocus: false,
+                  skipTraversal: true,
+                  onFocusChange: (f) {
+                    if (!f) return;
+                    final position = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+                    final renderObject = context.findRenderObject();
+                    if (position == null || renderObject == null) return;
+                    position.ensureVisible(renderObject, alignment: 0.5, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+                  },
+                  child: itemBuilder(context, i),
+                ),
               ),
             ),
           ),
@@ -669,6 +686,7 @@ class ChannelTile extends StatefulWidget {
     this.logo,
     this.number,
     this.nowPlaying,
+    this.nextPlaying,
     this.progress,
     this.locked = false,
     this.favorite = false,
@@ -684,6 +702,9 @@ class ChannelTile extends StatefulWidget {
   final String? logo;
   final int? number;
   final String? nowPlaying;
+
+  /// Title of the programme following [nowPlaying]; shown only when not [dense].
+  final String? nextPlaying;
 
   /// 0..1 progress of the current programme.
   final double? progress;
@@ -785,6 +806,10 @@ class _ChannelTileState extends State<ChannelTile> {
                     const SizedBox(height: 6),
                     ClipRRect(borderRadius: BorderRadius.circular(1), child: ProgressStrip(widget.progress!, height: 2, color: _focused ? Colors.black : null)),
                   ],
+                  if (!dense && widget.nextPlaying != null && widget.nextPlaying!.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(widget.nextPlaying!, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: fgFaint)),
+                  ],
                 ],
               ),
             ),
@@ -820,8 +845,15 @@ class SectionHeader extends StatelessWidget {
           if (action != null)
             TextButton(
               onPressed: onAction,
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), minimumSize: Size.zero),
-              child: Text(action!, style: Theme.of(context).textTheme.labelMedium),
+              // No `color:` here: TextButtonThemeData already flips foreground black-on-focused-white
+              // (theme.dart's `focusFg`), an explicit Text color (labelMedium bakes in white) would
+              // override it and make the label invisible against the focused white background.
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                minimumSize: Size.zero,
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, height: 1.2, letterSpacing: 0.2),
+              ),
+              child: Text(action!),
             ),
         ],
       ),

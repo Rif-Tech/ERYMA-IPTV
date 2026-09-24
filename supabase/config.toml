@@ -70,3 +70,6 @@ verify_jwt = false
 
 [functions.device-progress]
 verify_jwt = false
+
+[functions.device-logs]
+verify_jwt = false

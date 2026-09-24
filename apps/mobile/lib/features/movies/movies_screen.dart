@@ -94,7 +94,6 @@ class _MovieGrid extends ConsumerWidget {
             padding: const EdgeInsets.only(bottom: 6),
             child: FocusableCard(
               scale: 1.01,
-              autofocus: i == 0,
               onTap: () => context.push(Routes.movie(m.streamId)),
               onLongPress: () => playMovie(context, ref, m),
               child: GlassPanel(
@@ -127,7 +126,6 @@ class _MovieGrid extends ConsumerWidget {
           requestMoreIfNearEnd(i, items.length, onNearEnd);
           final m = items[i];
           return PosterCard(
-            autofocus: i == 0,
             title: m.name,
             subtitle: m.year?.toString(),
             imageUrl: m.poster,
@@ -162,7 +160,6 @@ class _SeriesGrid extends ConsumerWidget {
           requestMoreIfNearEnd(i, items.length, onNearEnd);
           final s = items[i];
           return PosterCard(
-            autofocus: i == 0,
             title: s.name,
             subtitle: s.year?.toString(),
             imageUrl: s.cover,

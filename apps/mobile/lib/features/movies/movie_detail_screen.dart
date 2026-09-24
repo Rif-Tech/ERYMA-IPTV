@@ -230,7 +230,8 @@ class DetailLayout extends StatelessWidget {
           ),
         ),
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(g, 24, g, 40 + MediaQuery.paddingOf(context).bottom),
+          // Room for TV overscan so the last row (episodes list on a series) is never clipped.
+          padding: EdgeInsets.fromLTRB(g, 24, g, 72 + MediaQuery.paddingOf(context).bottom),
           sliver: SliverList.list(
             children: [
               if (plot != null && plot!.isNotEmpty)

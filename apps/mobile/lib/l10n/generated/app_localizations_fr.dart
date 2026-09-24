@@ -647,6 +647,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get decoderSoftware => 'Logiciel — fonctionne partout, plus lent';
 
   @override
+  String get qualityNotSupportedLowEnd =>
+      'Cette qualité n\'est pas prise en charge sur cet appareil';
+
+  @override
   String get performanceMode => 'Mode performance';
 
   @override

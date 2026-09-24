@@ -218,6 +218,7 @@
   "decoderDirect": "Direct hardware — smoothest",
   "decoderCompat": "Hardware (copy) — compatible",
   "decoderSoftware": "Software — works everywhere, slower",
+  "qualityNotSupportedLowEnd": "This quality is not supported on this device",
   "performanceMode": "Performance mode",
   "performanceAuto": "Automatic (on for TV boxes)",
   "performanceOn": "On — lighter visuals, smoother",

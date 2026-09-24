@@ -14,6 +14,7 @@ import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/log/app_logger.dart';
 import '../../core/net/dns_providers.dart';
 import '../../core/platform/native_platform.dart';
 import '../../core/player/playback.dart';
@@ -65,7 +66,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   /// Accumulated, not yet committed seek offset (D-pad taps / long press).
   final _pendingSeek = ValueNotifier<Duration?>(null);
   Timer? _seekCommitTimer;
-  int _seekRepeats = 0;
+  Stopwatch? _seekHold;
+
+  /// Lightweight scrub bar shown while a D-pad seek key is held; unlike [_overlay] it never reveals
+  /// the full transport controls (back/play/etc. would be noise during a fast seek).
+  final _scrubVisible = ValueNotifier(false);
 
   PlayableItem get _item => widget.request.items[_index];
   bool get _isLive => _item.kind == ContentKind.live;
@@ -160,6 +165,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _watchdog?.cancel();
     _progressFocus.dispose();
     _playFocus.dispose();
+    _backFocus.dispose();
+    _prevFocus.dispose();
+    _nextFocus.dispose();
+    _listToggleFocus.dispose();
+    _replayFocus.dispose();
+    _forwardFocus.dispose();
     _saveProgress(flush: true);
     for (final s in _subs) {
       s.cancel();
@@ -170,6 +181,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _buffering.dispose();
     _playing.dispose();
     _pendingSeek.dispose();
+    _scrubVisible.dispose();
     unawaited(WakelockPlus.disable());
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     if (!_isTv) {
@@ -199,9 +211,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     final start = _pendingStartMs;
     _pendingStartMs = null;
     await _tuned;
-    await _player.open(
-      Media(_item.url, httpHeaders: const {'User-Agent': 'MultIPTV/1.0'}, start: start == null ? null : Duration(milliseconds: start)),
-    );
+    try {
+      await _player.open(
+        Media(_item.url, httpHeaders: const {'User-Agent': 'MultIPTV/1.0'}, start: start == null ? null : Duration(milliseconds: start)),
+      );
+    } catch (e) {
+      // Does not cover a native crash (segfault in mpv/MediaCodec/the GPU driver): those never
+      // reach Dart at all. This only catches what mpv/media_kit itself reports as a Dart error.
+      ref.read(appLoggerProvider).error('player', 'open failed on ${_path.name}: $e', context: {'kind': _item.kind.name});
+      if (mounted) setState(() => _error = '$e');
+      return;
+    }
     if (_isLive) _saveProgress();
   }
 
@@ -214,6 +234,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   Timer? _watchdog;
   final _progressFocus = FocusNode(debugLabel: 'progress');
   final _playFocus = FocusNode(debugLabel: 'play');
+  // Overlay-visible Up routing needs to know which button is focused: back (top-left), the
+  // channel-list toggle (live, top-right), and the transport row's outer buttons.
+  final _backFocus = FocusNode(debugLabel: 'back');
+  final _prevFocus = FocusNode(debugLabel: 'prev');
+  final _nextFocus = FocusNode(debugLabel: 'next');
+  final _listToggleFocus = FocusNode(debugLabel: 'list-toggle');
+  final _replayFocus = FocusNode(debugLabel: 'replay');
+  final _forwardFocus = FocusNode(debugLabel: 'forward');
 
   DecodePath _defaultPath() {
     // Emulators cannot create mpv's EGL context (vo=gpu): only the direct path shows a picture.
@@ -223,9 +251,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       VideoDecoder.direct => DecodePath.direct,
       VideoDecoder.compat => DecodePath.hardware,
       VideoDecoder.software => DecodePath.software,
+      // `direct` (zero-copy, vo=mediacodec_embed) used to be the TV default here, but on weak
+      // GPU/driver combos (e.g. Mi Box S) it can decode a rejected profile into garbage (green
+      // tiles, partially black frame) *with* a valid frame size reported — the black-screen
+      // watchdog below only fires on a frame size that never arrives, so that failure mode never
+      // triggers the fallback to `hardware`. `hardware` (vo=gpu, hwdec=mediacodec-copy) is the
+      // safer default everywhere; the user can still force `direct` in Settings.
       VideoDecoder.auto => (prefs.getBool(_directUnsupportedKey) ?? false)
           ? ((prefs.getBool(_hardwareUnsupportedKey) ?? false) ? DecodePath.software : DecodePath.hardware)
-          : (_isTv ? DecodePath.direct : DecodePath.hardware),
+          : DecodePath.hardware,
     };
   }
 
@@ -263,9 +297,30 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     if (next == null) return;
     // Emulators have no other working path: keep the current one and let the error show.
     if (ref.read(isEmulatorProvider)) return;
+    // Software decode of a 4K stream on a weak box (~2 GB RAM, no hardware help) is far more
+    // likely to hit a native OOM crash than to just play slowly — that native crash is invisible
+    // to any Dart try/catch (see openPlayer below), so refuse the combination up front and show a
+    // clear error instead of trading a black screen for a crash. Only known ≥4K streams are
+    // blocked (a stream whose dimensions were never reported might simply be fully unsupported,
+    // and software is still worth trying there).
+    if (next == DecodePath.software && ref.read(isLowEndDeviceProvider) && (_videoWidth ?? 0) >= 3840) {
+      _fellBack = true;
+      _watchdog?.cancel();
+      ref.read(appLoggerProvider).error(
+        'player',
+        '${_path.name} failed ($reason) → refusing software fallback for 4K on a low-end device',
+        context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
+      );
+      setState(() => _error = AppLocalizations.of(context).qualityNotSupportedLowEnd);
+      return;
+    }
     _fellBack = true;
     _watchdog?.cancel();
-    debugPrint('player: ${_path.name} failed ($reason) → restarting with ${next.name}');
+    ref.read(appLoggerProvider).warn(
+      'player',
+      '${_path.name} failed ($reason) → restarting with ${next.name}',
+      context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
+    );
     if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto) {
       final prefs = ref.read(sharedPreferencesProvider);
       await prefs.setBool(_path == DecodePath.direct ? _directUnsupportedKey : _hardwareUnsupportedKey, true);
@@ -403,12 +458,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   }
 
   /// Accumulates [delta]; the actual seek is committed once taps stop (or the key is released).
-  void _seekBy(Duration delta, {bool commitNow = false}) {
+  /// [showOverlay] is false for a D-pad seek starting from a hidden overlay: only the seek pill
+  /// (and, while a key is held, the scrub bar) should appear, not the full transport controls.
+  void _seekBy(Duration delta, {bool commitNow = false, bool showOverlay = true}) {
     if (_isLive) return;
     final pending = (_pendingSeek.value ?? Duration.zero) + delta;
     _pendingSeek.value = pending;
     _position.value = _clamp(_position.value + delta);
-    _showOverlay();
+    if (showOverlay) _showOverlay();
     _seekCommitTimer?.cancel();
     if (commitNow) {
       _commitSeek();
@@ -423,15 +480,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     final target = _position.value;
     await _player.seek(target);
     _pendingSeek.value = null;
-    _seekRepeats = 0;
+    _seekHold = null;
+    _scrubVisible.value = false;
   }
 
-  /// Long press: repeats grow the step (15s → 30s → 60s) so scrubbing far is quick.
+  /// Long press: the step grows the longer the key is held (10s → 60s over ~2.5s), so scrubbing far
+  /// across a long video is quick while a first tap still moves by the flat [_seekStep].
   Duration _repeatStep() {
-    _seekRepeats++;
-    if (_seekRepeats > 20) return _seekStep * 4;
-    if (_seekRepeats > 8) return _seekStep * 2;
-    return _seekStep;
+    final hold = _seekHold ??= Stopwatch()..start();
+    final heldMs = hold.elapsedMilliseconds.clamp(0, 2500);
+    final seconds = 10 + (60 - 10) * heldMs / 2500;
+    return Duration(seconds: seconds.round());
   }
 
   void _togglePlay() {
@@ -464,10 +523,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
 
     if (scrubKeys) {
       final step = repeat ? _repeatStep() : _seekStep;
-      _seekBy(isRight ? step : -step);
+      // A short tap (from a hidden overlay) only nudges the seek pill; a held key additionally
+      // opens the lightweight scrub bar. Neither reveals the full transport controls unless the
+      // overlay was already up (e.g. scrubbing via the focused progress bar).
+      if (repeat) _scrubVisible.value = true;
+      _seekBy(isRight ? step : -step, showOverlay: _overlay);
       return KeyEventResult.handled;
     }
     if (repeat) return KeyEventResult.ignored;
+
+    // Overlay visible + Up: route to a specific button instead of Flutter's default geometric
+    // traversal, which is unpredictable across this row (transport pill, progress bar, top row).
+    if (_overlay && key == LogicalKeyboardKey.arrowUp) {
+      final current = FocusManager.instance.primaryFocus;
+      debugPrint('DPAD_DEBUG up-intercept: current=${current?.debugLabel} isLive=$_isLive playFocus.hasFocus=${_playFocus.hasFocus}');
+      FocusNode? target;
+      if (_isLive) {
+        if (current == _playFocus || current == _prevFocus) {
+          target = _backFocus;
+        } else if (current == _nextFocus) {
+          target = _listToggleFocus;
+        }
+      } else {
+        if (current == _progressFocus) {
+          target = _backFocus;
+        } else if (current == _playFocus || current == _prevFocus || current == _replayFocus || current == _forwardFocus || current == _nextFocus) {
+          target = _progressFocus;
+        }
+      }
+      if (target != null) {
+        target.requestFocus();
+        _scheduleHide();
+        return KeyEventResult.handled;
+      }
+    }
 
     if (_overlay && isArrow) {
       // Keep the controls visible while the user moves between them; traversal does the rest.
@@ -475,26 +564,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       return KeyEventResult.ignored;
     }
 
-    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.channelUp) {
+    // CH+/CH- zap regardless of the D-pad remap below, matching a physical remote's dedicated keys.
+    if (key == LogicalKeyboardKey.channelUp || key == LogicalKeyboardKey.channelDown) {
       if (_isLive && !_overlay) {
-        _previous();
+        key == LogicalKeyboardKey.channelUp ? _previous() : _next();
         return KeyEventResult.handled;
       }
-      if (!_overlay) {
-        _showOverlay();
-        return KeyEventResult.handled;
-      }
-    } else if (key == LogicalKeyboardKey.arrowDown || key == LogicalKeyboardKey.channelDown) {
+    } else if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) {
+      // Live, hidden overlay: left/right zap within the current category's list (wraps at the ends).
       if (_isLive && !_overlay) {
-        _next();
+        key == LogicalKeyboardKey.arrowLeft ? _previous() : _next();
         return KeyEventResult.handled;
       }
-      if (!_overlay) {
-        _showOverlay();
-        return KeyEventResult.handled;
-      }
-    } else if ((key == LogicalKeyboardKey.select || key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.gameButtonA) && !_overlay) {
+    } else if ((key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) && !_overlay) {
       _showOverlay();
+      return KeyEventResult.handled;
+    } else if ((key == LogicalKeyboardKey.select || key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.gameButtonA) && !_overlay) {
+      // A single press both pauses and reveals the controls, instead of needing a second press on Play.
+      _togglePlay();
       return KeyEventResult.handled;
     } else if (key == LogicalKeyboardKey.mediaPlayPause || key == LogicalKeyboardKey.mediaPlay || key == LogicalKeyboardKey.mediaPause || key == LogicalKeyboardKey.space) {
       _togglePlay();
@@ -591,6 +678,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                   ),
                 if (_error != null) _ErrorBanner(message: _error!, onRetry: _open, onExit: () => context.pop()),
                 if (!_isLive) _SeekIndicator(pending: _pendingSeek, position: _position),
+                if (!_isLive)
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _scrubVisible,
+                    builder: (_, visible, child) => visible ? child! : const SizedBox.shrink(),
+                    child: _ScrubBar(position: _position, duration: _duration),
+                  ),
                 AnimatedOpacity(
                   opacity: _overlay ? 1 : 0,
                   duration: const Duration(milliseconds: 200),
@@ -625,7 +718,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
           padding: EdgeInsets.fromLTRB(gutter - 8, top + 12, gutter, 40),
           child: Row(
             children: [
-              IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
+              IconButton(focusNode: _backFocus, icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
               const SizedBox(width: 8),
               if (item.logo != null)
                 Container(
@@ -653,6 +746,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: IconButton(
+                    focusNode: _listToggleFocus,
                     tooltip: l10n.channelList,
                     icon: const Icon(Icons.view_list_rounded),
                     onPressed: () => setState(() => _showList = true),
@@ -705,11 +799,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                   _ControlPill(
                     children: [
                       IconButton(
+                        focusNode: _prevFocus,
                         tooltip: _isLive ? l10n.previousChannel : null,
                         icon: const Icon(Icons.skip_previous_rounded),
                         onPressed: widget.request.items.length > 1 ? _previous : null,
                       ),
-                      if (!_isLive) IconButton(icon: const Icon(Icons.replay_rounded), onPressed: () => _seekBy(-_seekStep)),
+                      if (!_isLive) IconButton(focusNode: _replayFocus, icon: const Icon(Icons.replay_rounded), onPressed: () => _seekBy(-_seekStep)),
                       ValueListenableBuilder<bool>(
                         valueListenable: _playing,
                         builder: (_, playing, _) => IconButton(
@@ -720,8 +815,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                           onPressed: _togglePlay,
                         ),
                       ),
-                      if (!_isLive) IconButton(icon: const Icon(Icons.forward_rounded), onPressed: () => _seekBy(_seekStep)),
+                      if (!_isLive) IconButton(focusNode: _forwardFocus, icon: const Icon(Icons.forward_rounded), onPressed: () => _seekBy(_seekStep)),
                       IconButton(
+                        focusNode: _nextFocus,
                         tooltip: _isLive ? l10n.nextChannel : l10n.nextEpisode,
                         icon: const Icon(Icons.skip_next_rounded),
                         onPressed: widget.request.items.length > 1 ? _next : null,
@@ -961,6 +1057,42 @@ class _BarPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BarPainter old) => old.value != value || old.thick != thick || old.focused != focused;
+}
+
+/// Display-only progress bar shown while a D-pad seek key is held: no focus/drag handling of its
+/// own (that stays in [_PlayerScreenState._onKey]), just a live cursor so a long-press fast seek is
+/// visible without popping the full transport controls.
+class _ScrubBar extends StatelessWidget {
+  const _ScrubBar({required this.position, required this.duration});
+  final ValueNotifier<Duration> position;
+  final ValueNotifier<Duration> duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return IgnorePointer(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(48, 0, 48, 32 + bottom),
+          child: SizedBox(
+            height: 16,
+            child: ValueListenableBuilder<Duration>(
+              valueListenable: duration,
+              builder: (context, dur, _) => ValueListenableBuilder<Duration>(
+                valueListenable: position,
+                builder: (context, pos, _) {
+                  final total = dur.inMilliseconds;
+                  final value = total > 0 ? (pos.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
+                  return CustomPaint(painter: _BarPainter(value: value, thick: true));
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Centered "+45 s → 01:12:30" feedback while taps accumulate.

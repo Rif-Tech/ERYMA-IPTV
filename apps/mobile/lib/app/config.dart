@@ -45,4 +45,8 @@ abstract final class AppConfig {
   static String get playlistsPageLabel => '$portalHost/account/playlists';
 
   static const appName = 'MultIPTV';
+
+  /// Sentry DSN for native crash / Dart exception reporting. Empty disables it entirely (no
+  /// account is provisioned by default — see docs/api.md for how to set one up).
+  static const sentryDsn = String.fromEnvironment('SENTRY_DSN');
 }

@@ -46,3 +46,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+sentry.properties
+
+# Downloaded by the Sentry setup wizard; a CLI tool, not part of the app.
+sentry-wizard.exe

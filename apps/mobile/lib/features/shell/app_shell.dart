@@ -6,7 +6,11 @@ import 'package:go_router/go_router.dart';
 import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
+import '../../core/db/database.dart' show ContentKind;
 import '../../l10n/generated/app_localizations.dart';
+import '../content/content_providers.dart' show SpecialCategory;
+import '../live/live_screen.dart' show selectedCategoryProvider;
+import '../search/search_screen.dart' show resetSearch;
 
 class _Destination {
   const _Destination(this.route, this.icon, this.selectedIcon, this.label);
@@ -39,11 +43,16 @@ FocusNode? topLeftFocusable(FocusScopeNode scope) {
   return best;
 }
 
-/// Focus node attached to the current tab, so content panes can jump back to it (D-pad up).
-final sidebarFocusProvider = Provider<FocusNode>((ref) {
-  final node = FocusNode(debugLabel: 'topbar');
-  ref.onDispose(node.dispose);
-  return node;
+/// One stable, never-recreated node per tab (so content panes can jump back to the active one on
+/// D-pad up, and OK on a tab keeps the cursor on it once the page has loaded).
+final _tabFocusNodesProvider = Provider<List<FocusNode>>((ref) {
+  final nodes = [for (final d in _destinations) FocusNode(debugLabel: 'tab-${d.route}')];
+  ref.onDispose(() {
+    for (final n in nodes) {
+      n.dispose();
+    }
+  });
+  return nodes;
 });
 
 /// Scope of the content area; remembers the last focused item so Down from the tabs returns to it.
@@ -74,12 +83,14 @@ class _BarVisible extends Notifier<bool> {
 /// D-pad glue between the top bar and the content: Flutter's directional traversal does not
 /// reliably cross the two regions, so when a move fails we hand focus over explicitly.
 class _TvFocusBridge extends ConsumerWidget {
-  const _TvFocusBridge({required this.child});
+  const _TvFocusBridge({required this.child, required this.currentIndex});
   final Widget child;
+  final int currentIndex;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bar = ref.watch(sidebarFocusProvider);
+    final nodes = ref.watch(_tabFocusNodesProvider);
+    final bar = nodes[currentIndex];
     final body = ref.watch(bodyScopeProvider);
     final barScope = ref.watch(_barScopeProvider);
     return Focus(
@@ -166,7 +177,33 @@ class _AppShellState extends ConsumerState<AppShell> {
     final form = formFactorOf(context, isTv: isTv);
     final index = _index;
 
-    void go(int i) => widget.shell.goBranch(i, initialLocation: i == _index);
+    final tabNodes = ref.watch(_tabFocusNodesProvider);
+
+    // Keeps the D-pad cursor on the tab that was just activated: the page swap can otherwise leave
+    // focus wherever Flutter's default traversal lands it.
+    void refocusTab(int i) => WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) tabNodes[i].requestFocus();
+        });
+
+    void go(int i) {
+      if (i != _index) {
+        // Coming from another tab: a stale search stays otherwise, since Search is never disposed.
+        if (_destinations[i].route == Routes.search) resetSearch(ref);
+        // Home, Movies and Series always come back to their root grid, never to the last detail
+        // opened from them (the header tab is meant as a hard reset, not "resume where I was").
+        if (_destinations[i].route == Routes.home ||
+            _destinations[i].route == Routes.movies ||
+            _destinations[i].route == Routes.series) {
+          if (_destinations[i].route == Routes.movies) ref.read(selectedCategoryProvider(ContentKind.vod).notifier).select(SpecialCategory.all);
+          if (_destinations[i].route == Routes.series) ref.read(selectedCategoryProvider(ContentKind.series).notifier).select(SpecialCategory.all);
+          widget.shell.goBranch(i, initialLocation: true);
+          refocusTab(i);
+          return;
+        }
+      }
+      widget.shell.goBranch(i, initialLocation: i == _index);
+      refocusTab(i);
+    }
 
     // Nested routes (details) pop on their own; this only runs when a root tab is showing.
     Future<void> onBack() async {
@@ -223,6 +260,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final visible = ref.watch(_barVisibleProvider);
     return Scaffold(
       body: _TvFocusBridge(
+        currentIndex: index,
         child: Stack(
           children: [
             Positioned.fill(
@@ -230,7 +268,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 onNotification: (n) {
                   // Only the outer vertical scroll drives the bar; shelves scroll horizontally.
                   if (n.metrics.axis != Axis.vertical || n.depth != 0) return false;
-                  final hide = n.metrics.pixels > 80 && !ref.read(sidebarFocusProvider).hasFocus;
+                  final hide = n.metrics.pixels > 80 && !tabNodes.any((node) => node.hasFocus);
                   ref.read(_barVisibleProvider.notifier).set(!hide);
                   return false;
                 },
@@ -256,7 +294,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   duration: const Duration(milliseconds: 180),
                   child: FocusScope(
                     node: ref.watch(_barScopeProvider),
-                    child: _TopTabBar(index: index, onSelected: go, barNode: ref.watch(sidebarFocusProvider)),
+                    child: _TopTabBar(index: index, onSelected: go, nodes: tabNodes),
                   ),
                 ),
               ),
@@ -270,10 +308,10 @@ class _AppShellState extends ConsumerState<AppShell> {
 
 /// Centered pill tabs over a soft black gradient, like the Apple TV app header.
 class _TopTabBar extends StatelessWidget {
-  const _TopTabBar({required this.index, required this.onSelected, required this.barNode});
+  const _TopTabBar({required this.index, required this.onSelected, required this.nodes});
   final int index;
   final ValueChanged<int> onSelected;
-  final FocusNode barNode;
+  final List<FocusNode> nodes;
 
   @override
   Widget build(BuildContext context) {
@@ -313,7 +351,7 @@ class _TopTabBar extends StatelessWidget {
                     label: d.label(l10n),
                     iconOnly: d.route == Routes.search || d.route == Routes.settings,
                     selected: i == index,
-                    focusNode: i == index ? barNode : null,
+                    focusNode: nodes[i],
                     onTap: () => onSelected(i),
                   ),
                 ),
@@ -331,14 +369,14 @@ class _TabItem extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.focusNode,
+    required this.focusNode,
     this.iconOnly = false,
   });
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final FocusNode? focusNode;
+  final FocusNode focusNode;
   final bool iconOnly;
 
   @override
@@ -346,36 +384,21 @@ class _TabItem extends StatefulWidget {
 }
 
 class _TabItemState extends State<_TabItem> {
-  late FocusNode _node = widget.focusNode ?? FocusNode();
   bool _focused = false;
 
   @override
   void initState() {
     super.initState();
-    _node.addListener(_onFocus);
-  }
-
-  // The shared node moves between items when the route changes: rebind the listener.
-  @override
-  void didUpdateWidget(covariant _TabItem old) {
-    super.didUpdateWidget(old);
-    final next = widget.focusNode ?? (old.focusNode == null ? _node : FocusNode());
-    if (next != _node) {
-      _node.removeListener(_onFocus);
-      if (old.focusNode == null) _node.dispose();
-      _node = next..addListener(_onFocus);
-    }
-    _onFocus();
+    widget.focusNode.addListener(_onFocus);
   }
 
   void _onFocus() {
-    if (_focused != _node.hasFocus) setState(() => _focused = _node.hasFocus);
+    if (_focused != widget.focusNode.hasFocus) setState(() => _focused = widget.focusNode.hasFocus);
   }
 
   @override
   void dispose() {
-    _node.removeListener(_onFocus);
-    if (widget.focusNode == null) _node.dispose();
+    widget.focusNode.removeListener(_onFocus);
     super.dispose();
   }
 
@@ -392,7 +415,7 @@ class _TabItemState extends State<_TabItem> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        focusNode: _node,
+        focusNode: widget.focusNode,
         onTap: widget.onTap,
         focusColor: Colors.transparent,
         hoverColor: Colors.transparent,

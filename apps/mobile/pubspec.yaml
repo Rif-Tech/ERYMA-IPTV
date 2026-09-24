@@ -35,6 +35,9 @@ dependencies:
   shared_preferences: ^2.5.3
   package_info_plus: ^9.0.0
   crypto: ^3.0.6
+  # Native crash reporting: a 4K decode failure on a weak box is usually a native crash (mpv/
+  # MediaCodec/GPU driver), invisible to any Dart try/catch or to the Supabase app_logs pipeline.
+  sentry_flutter: ^9.0.0
   path_provider: ^2.1.5
   wakelock_plus: ^1.2.10
   flutter_foreground_task: ^8.17.0
@@ -48,6 +51,7 @@ dependencies:
   xml: ^6.5.0
 
 dev_dependencies:
+  sentry_dart_plugin: ^3.4.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
@@ -68,3 +72,12 @@ flutter:
           weight: 600
         - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
+
+sentry:
+  upload_debug_symbols: true
+  upload_source_maps: true
+  project: flutter
+  org: riftech
+  # Matches --split-debug-info in scripts/build-release.ps1; without this the plugin looks in its
+  # own default location and silently finds nothing to upload.
+  symbols_path: build/symbols

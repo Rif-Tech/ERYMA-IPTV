@@ -58,17 +58,6 @@ class SelectedCategory extends Notifier<String> {
 
 final selectedCategoryProvider = NotifierProvider.family<SelectedCategory, String, ContentKind>(SelectedCategory.new);
 
-/// Channel currently highlighted by the D-pad; feeds the now/next header.
-class _FocusedChannel extends Notifier<Channel?> {
-  @override
-  Channel? build() => null;
-  void set(Channel? c) {
-    if (state?.streamId != c?.streamId) state = c;
-  }
-}
-
-final _focusedChannelProvider = NotifierProvider<_FocusedChannel, Channel?>(_FocusedChannel.new);
-
 /// Two-column layout shared by Live, Movies and Series: translucent category pane + content.
 /// Each column is its own focus scope so D-pad Up/Down never jumps across; Left/Right cross explicitly.
 class BrowserScaffold extends StatefulWidget {
@@ -175,126 +164,16 @@ class LiveScreen extends ConsumerWidget {
       builder: (context, form) => BrowserScaffold(
         kind: ContentKind.live,
         form: form,
-        child: Column(
-          children: [
-            if (!form.isMobile) _NowNextHeader(playlistId: playlist.id),
-            Expanded(
-              child: AsyncView(
-                value: channels,
-                builder: (page) => _ChannelList(
-                  query: query,
-                  channels: page.items,
-                  form: form,
-                  onNearEnd: () => ref.read(channelsProvider(query).notifier).loadMore(),
-                ),
-              ),
-            ),
-          ],
+        child: AsyncView(
+          value: channels,
+          builder: (page) => _ChannelList(
+            query: query,
+            channels: page.items,
+            form: form,
+            onNearEnd: () => ref.read(channelsProvider(query).notifier).loadMore(),
+          ),
         ),
       ),
-    );
-  }
-}
-
-/// Large now/next card for the highlighted channel (TV/tablet).
-class _NowNextHeader extends ConsumerWidget {
-  const _NowNextHeader({required this.playlistId});
-  final String playlistId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context);
-    final c = ref.watch(_focusedChannelProvider);
-    final use24h = ref.watch(settingsProvider.select((s) => s.use24hClock));
-    final text = Theme.of(context).textTheme;
-    final t = context.tokens;
-    final epgId = c?.epgChannelId;
-    final programs = c == null || epgId == null || epgId.isEmpty
-        ? const <EpgProgram>[]
-        : ref.watch(nowNextProvider(NowNextQuery(playlistId, epgId))).value ?? const <EpgProgram>[];
-    final now = programs.isNotEmpty ? programs.first : null;
-    final next = programs.length > 1 ? programs[1] : null;
-    final progress = now == null
-        ? null
-        : (DateTime.now().difference(now.start).inSeconds / now.end.difference(now.start).inSeconds.clamp(1, 1 << 30)).clamp(0.0, 1.0);
-
-    return AnimatedSize(
-      duration: t.motion,
-      curve: t.curve,
-      alignment: Alignment.topCenter,
-      child: c == null
-          ? const SizedBox(width: double.infinity)
-          : Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: GlassPanel(
-                padding: const EdgeInsets.all(18),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 128,
-                      height: 72,
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: const Color(0xFF1C1C1E), borderRadius: BorderRadius.circular(10)),
-                      child: AppImage(c.logo, fit: BoxFit.contain, icon: Icons.live_tv, decodeWidth: 320),
-                    ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              if (c.number != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: MetaBadge('${c.number}'),
-                                ),
-                              Expanded(child: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleLarge)),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          if (now == null)
-                            Text(l10n.noEpgAvailable, style: text.bodyMedium?.copyWith(color: t.textFaint))
-                          else ...[
-                            Text.rich(
-                              TextSpan(children: [
-                                TextSpan(text: '${l10n.nowLabel}  ', style: text.labelMedium?.copyWith(color: t.textFaint)),
-                                TextSpan(text: now.title, style: text.bodyLarge),
-                                TextSpan(
-                                  text: '   ${formatTime(context, now.start, use24h: use24h)} – ${formatTime(context, now.end, use24h: use24h)}',
-                                  style: text.bodySmall?.copyWith(color: t.textFaint),
-                                ),
-                              ]),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (progress != null)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                child: ClipRRect(borderRadius: BorderRadius.circular(1.5), child: ProgressStrip(progress, height: 3)),
-                              ),
-                            if (next != null)
-                              Text.rich(
-                                TextSpan(children: [
-                                  TextSpan(text: '${l10n.nextLabel}  ', style: text.labelMedium?.copyWith(color: t.textFaint)),
-                                  TextSpan(text: next.title, style: text.bodyMedium?.copyWith(color: t.textMuted)),
-                                  TextSpan(
-                                    text: '   ${formatTime(context, next.start, use24h: use24h)}',
-                                    style: text.bodySmall?.copyWith(color: t.textFaint),
-                                  ),
-                                ]),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
     );
   }
 }
@@ -455,9 +334,12 @@ class _ChannelList extends ConsumerWidget {
 
     return FocusTraversalGroup(
       child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(form.isMobile ? 12 : 0, 0, form.isMobile ? 12 : 0, 24 + MediaQuery.paddingOf(context).bottom),
+        // Horizontal room on TV too: the focused row scales up (FocusableCard) and clips against a
+        // zero-padding viewport otherwise.
+        padding: EdgeInsets.fromLTRB(form.isMobile ? 12 : 16, 0, form.isMobile ? 12 : 16, 24 + MediaQuery.paddingOf(context).bottom),
         itemCount: channels.length,
-        itemExtent: form.isTv ? 78 : 70,
+        // Taller on TV to always reserve room for the "next" line (now shown inside the row).
+        itemExtent: form.isTv ? 96 : 70,
         addAutomaticKeepAlives: false,
         addRepaintBoundaries: false,
         itemBuilder: (context, i) {
@@ -474,7 +356,6 @@ class _ChannelList extends ConsumerWidget {
               playing: c.streamId == lastPlayed,
               onTap: () => playChannels(context, ref, channels, i),
               onLongPress: () => showChannelMenu(context, ref, playlistId, c),
-              onFocus: form.isMobile ? null : () => ref.read(_focusedChannelProvider.notifier).set(c),
             ),
           );
         },
@@ -493,7 +374,6 @@ class _ChannelRow extends ConsumerWidget {
     this.playing = false,
     required this.onTap,
     required this.onLongPress,
-    this.onFocus,
   });
   final ContentQuery query;
   final Channel channel;
@@ -503,11 +383,12 @@ class _ChannelRow extends ConsumerWidget {
   final bool playing;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  final VoidCallback? onFocus;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     String? now;
+    String? next;
     double? progress;
     final epgId = channel.epgChannelId;
     if (epgId != null && epgId.isNotEmpty) {
@@ -518,6 +399,10 @@ class _ChannelRow extends ConsumerWidget {
         now = p.title;
         final total = p.end.difference(p.start).inSeconds;
         if (total > 0) progress = (DateTime.now().difference(p.start).inSeconds / total).clamp(0.0, 1.0);
+        if (programs.length > 1) {
+          final n = programs[1];
+          next = '${l10n.nextLabel} : ${n.title} · ${formatTime(context, n.start, use24h: use24h)}';
+        }
       }
     }
     return ChannelTile(
@@ -525,13 +410,13 @@ class _ChannelRow extends ConsumerWidget {
       logo: channel.logo,
       number: channel.number,
       nowPlaying: now,
+      nextPlaying: next,
       progress: progress,
       locked: locked,
       favorite: favorite,
       selected: playing,
       onTap: onTap,
       onLongPress: onLongPress,
-      onFocus: onFocus,
     );
   }
 }

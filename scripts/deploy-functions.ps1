@@ -10,7 +10,7 @@ $ref = 'zeproepijcixdmszlkmf'
 $noJwt = @(
   'app-info',
   'featured', 'tmdb', 'watch-events',
-  'pairing-create', 'pairing-status', 'pairing-confirm', 'device-session', 'device-context', 'device-progress'
+  'pairing-create', 'pairing-status', 'pairing-confirm', 'device-session', 'device-context', 'device-progress', 'device-logs'
 )
 $all = Get-ChildItem "$root\supabase\functions" -Directory | Where-Object { $_.Name -notlike '_*' } | Select-Object -ExpandProperty Name
 $targets = if ($Only) { $Only } else { $all }

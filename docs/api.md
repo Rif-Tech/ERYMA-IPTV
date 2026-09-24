@@ -56,7 +56,10 @@ Contenu du carrousel « À la une ». `curated` = sélection admin (`featured_it
 Proxy TMDB (la clé reste côté serveur). Authentification : identité d'installation **ou** administrateur (`x-admin-token: <JWT Supabase>`). Renvoie `503` si `TMDB_API_KEY` n'est pas configurée.
 
 ### `POST /watch-events` (identité d'installation)
-`{ kind: movie|tv|live, title_key, title, year?, tmdb_id? }` → `{ ok }`. Statistique anonyme (aucune URL de playlist stockée, seulement l'identifiant interne de l'appareil pour dédoublonner), un événement max par appareil/titre/heure, purge après 30 jours.
+`{ kind: movie|tv|live, title_key, title, year?, tmdb_id? }` → `{ ok }`. Statistique pseudonyme (aucune URL de playlist stockée ; chaque ligne porte `device_id` et `account_id` pour dédoublonner), un événement max par appareil/titre/heure, purge après 30 jours (opportuniste, ~1 appel sur 50).
+
+### `POST /device-logs` (identité d'installation)
+`{ items: [{ level: debug|info|warn|error, category, message, context?, client_id?, created_at? }] }` → `{ ok, inserted }`. Logs diagnostiques par appareil et par compte (table `app_logs`), 500 entrées max par appel, purge après 48h (opportuniste, ~1 appel sur 20). Ne jamais y envoyer d'identifiants, de mot de passe ou d'URL de playlist. Couvre les échecs applicatifs (repli de décodage vidéo, échec de lecture, import, appairage) — **pas** les crashs natifs (mpv/MediaCodec/pilote GPU), qui ne passent jamais par Dart : voir Sentry (`SENTRY_DSN`) ci-dessous. Lecture réservée à l'admin/`service_role` (RLS), typiquement via le MCP Supabase pour le diagnostic.
 
 ## Portail utilisateur (web)
 
@@ -82,4 +85,5 @@ Le portail `/admin` utilise Supabase Auth (e-mail / mot de passe) et accède dir
 - `PORTAL_TOKEN_SECRET` (secret Edge Functions) : clé de signature des jetons portail. À défaut, la clé service role est utilisée.
 - `TMDB_API_KEY` (secret Edge Functions) : clé API v3 TMDB pour `tmdb` et les modes `tmdb`/`popular` de `featured`. Dashboard Supabase → Edge Functions → Secrets, ou `supabase secrets set TMDB_API_KEY=…`. Sans elle, l'app retombe sur le contenu local et le portail affiche « Clé TMDB non configurée ».
 - Le portail Next.js a besoin de `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` et éventuellement `SUPABASE_FUNCTIONS_URL`.
-- L'app Flutter se configure avec `--dart-define=API_BASE_URL=… --dart-define=API_ANON_KEY=… --dart-define=PORTAL_URL=…`.
+- L'app Flutter se configure avec `--dart-define=API_BASE_URL=… --dart-define=API_ANON_KEY=… --dart-define=PORTAL_URL=… --dart-define=SENTRY_DSN=…`.
+- `SENTRY_DSN` (`--dart-define`, optionnel) : active le rapport de crash natif/Dart (Sentry). Vide par défaut (aucun compte provisionné). `SENTRY_AUTH_TOKEN` (variable d'environnement locale, jamais commitée) : requis par `sentry_dart_plugin` pour publier les symboles de debug lors de `build-release.ps1` (org/projet dans `apps/mobile/pubspec.yaml`, clé `sentry:`).

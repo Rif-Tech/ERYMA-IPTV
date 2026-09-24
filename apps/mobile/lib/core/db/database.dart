@@ -462,9 +462,21 @@ class AppDatabase extends _$AppDatabase {
         useColumns: false,
       ));
     }
+    // "Tout" (no category picked) groups by bouquet order, like the playlist itself, instead of
+    // raw import order: join each item's category to read its position.
+    final byBouquet = f.categoryId == null && !f.recentOnly && f.sort == ContentSort.position;
+    if (byBouquet) {
+      joins.add(leftOuterJoin(
+        categories,
+        categories.playlistId.equalsExp(playlistCol) & categories.kind.equalsValue(kind) & categories.externalId.equalsExp(category),
+        useColumns: false,
+      ));
+    }
     final order = <OrderingTerm>[
       if (f.recentOnly)
         OrderingTerm.desc(history.watchedAt)
+      else if (byBouquet)
+        OrderingTerm(expression: categories.position, mode: OrderingMode.asc, nulls: NullsOrder.last)
       else
         switch (f.sort) {
           ContentSort.position => OrderingTerm.asc(position),

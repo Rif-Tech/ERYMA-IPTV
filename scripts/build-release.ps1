@@ -1,9 +1,11 @@
 # Builds the release APKs: one per ABI (smallest download for a given box) plus a universal one
 # for the single `apk_link` published in the admin portal. Output goes to dist\.
-# Usage: .\scripts\build-release.ps1 [-PortalUrl https://portail.example.com] [-SkipUniversal]
+# Usage: .\scripts\build-release.ps1 [-PortalUrl https://portail.example.com] [-SentryDsn https://...] [-SkipUniversal]
 # -PortalUrl is only the offline fallback: at runtime the app uses the URL set in /admin/config.
+# -SentryDsn enables crash reporting in the built APK (empty = disabled, see AppConfig.sentryDsn).
 param(
   [string]$PortalUrl = $(if ($env:PORTAL_URL) { $env:PORTAL_URL } else { 'http://100.88.208.52:3000' }),
+  [string]$SentryDsn = $env:SENTRY_DSN,
   [switch]$SkipUniversal
 )
 
@@ -31,7 +33,11 @@ try {
   # stack-trace decoding (`flutter symbolize`).
   if ($PortalUrl -match 'localhost|127\.0\.0\.1') { throw "PortalUrl '$PortalUrl' is not reachable from a TV box; pass -PortalUrl with the LAN/public address." }
   Write-Host "PORTAL_URL fallback: $PortalUrl"
-  $common = @('--release', '--obfuscate', "--split-debug-info=$app\build\symbols", '--tree-shake-icons', "--dart-define=PORTAL_URL=$PortalUrl")
+  if (-not $SentryDsn) { Write-Warning 'No Sentry DSN (-SentryDsn or $env:SENTRY_DSN): this build will not report crashes.' }
+  $common = @(
+    '--release', '--obfuscate', "--split-debug-info=$app\build\symbols", '--tree-shake-icons',
+    "--dart-define=PORTAL_URL=$PortalUrl", "--dart-define=SENTRY_DSN=$SentryDsn"
+  )
 
   flutter build apk @common --split-per-abi
   if ($LASTEXITCODE -ne 0) { throw 'split-per-abi build failed' }
@@ -41,6 +47,18 @@ try {
     flutter build apk @common
     if ($LASTEXITCODE -ne 0) { throw 'universal build failed' }
     Copy-Item "$app\build\app\outputs\flutter-apk\app-release.apk" "$dist\app-universal-release.apk" -Force
+  }
+
+  # Matches the obfuscated Dart symbols to their sources on Sentry so a native/Dart crash there
+  # shows a real stack trace instead of addresses. sentry_dart_plugin reads the token from
+  # $env:SENTRY_AUTH_TOKEN OR apps\mobile\sentry.properties (written by `sentry-wizard`, gitignored).
+  # Non-fatal: the APKs above are already built and copied to dist\ by this point, and a symbol
+  # upload failure (wrong org/project, network) must not make a good release look like a failed one.
+  if ($env:SENTRY_AUTH_TOKEN -or (Test-Path "$app\sentry.properties")) {
+    dart run sentry_dart_plugin
+    if ($LASTEXITCODE -ne 0) { Write-Warning 'sentry_dart_plugin upload failed (see output above) — the APKs are still fine, only crash stack traces will show raw addresses.' }
+  } else {
+    Write-Warning 'No SENTRY_AUTH_TOKEN and no sentry.properties: skipping debug symbol upload to Sentry (crashes will show raw addresses).'
   }
 } finally {
   Pop-Location

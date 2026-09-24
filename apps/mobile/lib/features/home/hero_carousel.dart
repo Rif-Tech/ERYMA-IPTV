@@ -13,6 +13,7 @@ import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/images/artwork_cache.dart';
+import '../../core/log/app_logger.dart';
 import '../../core/settings/settings.dart';
 import '../../core/xtream/xtream_client.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -22,7 +23,9 @@ import '../content/content_providers.dart';
 import '../movies/movie_detail_screen.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
+import '../shell/app_shell.dart' show topLeftFocusable;
 import 'featured_provider.dart';
+import 'home_screen.dart' show firstShelfScopeProvider;
 
 /// Series metadata (backdrop, genre, plot) fetched lazily from the Xtream panel.
 final seriesInfoProvider = FutureProvider.family<XtreamSeriesInfo?, String>((ref, id) async {
@@ -199,17 +202,46 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
       canRequestFocus: false,
       skipTraversal: true,
       onFocusChange: (f) => _paused = f,
-      // Left on the first button / Right on the last one flips the featured item.
       onKeyEvent: (_, e) {
-        if (e is! KeyDownEvent || widget.items.length < 2) return KeyEventResult.ignored;
-        final last = canOpen ? _infoNode : _playNode;
-        if (e.logicalKey == LogicalKeyboardKey.arrowRight && last.hasFocus) {
-          _go(_index + 1);
-          return KeyEventResult.handled;
+        if (e is! KeyDownEvent) return KeyEventResult.ignored;
+        // Down from Lire/Infos always drops into "Reprendre la lecture" (the first shelf), rather
+        // than trusting Flutter's geometric traversal to reach it reliably from a full-bleed hero.
+        if (e.logicalKey == LogicalKeyboardKey.arrowDown) {
+          final scope = ref.read(firstShelfScopeProvider);
+          final target = scope.focusedChild ?? topLeftFocusable(scope);
+          if (target != null) {
+            target.requestFocus();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
         }
-        if (e.logicalKey == LogicalKeyboardKey.arrowLeft && _playNode.hasFocus) {
-          _go(_index - 1);
-          return KeyEventResult.handled;
+        // Right from Play moves to Infos, left from Infos moves back to Play; right on the last
+        // button / left on the first one flips the featured item. All four transitions are handled
+        // explicitly: Flutter's default directional traversal is not reliable enough at this
+        // boundary (it can escape the hero entirely and land on the header tab bar instead).
+        if (e.logicalKey != LogicalKeyboardKey.arrowRight && e.logicalKey != LogicalKeyboardKey.arrowLeft) {
+          return KeyEventResult.ignored;
+        }
+        final first = canPlay ? _playNode : _infoNode;
+        final last = canOpen ? _infoNode : _playNode;
+        if (e.logicalKey == LogicalKeyboardKey.arrowRight) {
+          if (first != last && first.hasFocus) {
+            last.requestFocus();
+            return KeyEventResult.handled;
+          }
+          if (last.hasFocus && widget.items.length > 1) {
+            _go(_index + 1);
+            return KeyEventResult.handled;
+          }
+        } else {
+          if (first != last && last.hasFocus) {
+            first.requestFocus();
+            return KeyEventResult.handled;
+          }
+          if (first.hasFocus && widget.items.length > 1) {
+            _go(_index - 1);
+            return KeyEventResult.handled;
+          }
         }
         return KeyEventResult.ignored;
       },
@@ -365,27 +397,35 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
     }
   }
 
+  // The OK press otherwise looks entirely ignored on a failure: the episode fetch below can throw
+  // (flaky panel/network) or return empty, and nothing awaits this callback to report it.
   Future<void> _play(BuildContext context, HeroItem h) async {
-    switch (h.target) {
-      case HeroTarget.movie:
-        return playMovie(context, ref, h.movie!);
-      case HeroTarget.channel:
-        return playChannels(context, ref, [h.channel!], 0);
-      case HeroTarget.url:
-        await launchUrl(Uri.parse(h.url!), mode: LaunchMode.externalApplication);
-        return;
-      case HeroTarget.series:
-        final s = h.series!;
-        final eps = await ref.read(episodesProvider(s.seriesId).future);
-        if (!context.mounted || eps.isEmpty) return;
-        var index = 0;
-        if (h.history != null) {
-          final i = eps.indexWhere((e) => e.episodeId == h.history!.itemId);
-          if (i >= 0) index = i;
-        }
-        return playEpisodes(context, ref, eps, index, seriesName: s.name);
-      case HeroTarget.none:
-        return;
+    try {
+      switch (h.target) {
+        case HeroTarget.movie:
+          return await playMovie(context, ref, h.movie!);
+        case HeroTarget.channel:
+          return await playChannels(context, ref, [h.channel!], 0);
+        case HeroTarget.url:
+          await launchUrl(Uri.parse(h.url!), mode: LaunchMode.externalApplication);
+          return;
+        case HeroTarget.series:
+          final s = h.series!;
+          final eps = await ref.read(episodesProvider(s.seriesId).future);
+          if (!context.mounted) return;
+          if (eps.isEmpty) throw StateError('no episodes');
+          var index = 0;
+          if (h.history != null) {
+            final i = eps.indexWhere((e) => e.episodeId == h.history!.itemId);
+            if (i >= 0) index = i;
+          }
+          return await playEpisodes(context, ref, eps, index, seriesName: s.name);
+        case HeroTarget.none:
+          return;
+      }
+    } catch (e) {
+      ref.read(appLoggerProvider).error('playback', 'hero play failed (${h.target.name}): $e');
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).playbackError)));
     }
   }
 }

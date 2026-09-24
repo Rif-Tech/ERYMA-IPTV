@@ -200,6 +200,7 @@
   "decoderDirect": "Matériel direct — le plus fluide",
   "decoderCompat": "Matériel (copie) — compatible",
   "decoderSoftware": "Logiciel — fonctionne partout, plus lent",
+  "qualityNotSupportedLowEnd": "Cette qualité n'est pas prise en charge sur cet appareil",
   "performanceMode": "Mode performance",
   "performanceAuto": "Automatique (actif sur les box TV)",
   "performanceOn": "Activé — visuels allégés, plus fluide",

@@ -12,6 +12,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
+import '../shell/app_shell.dart' show topLeftFocusable;
 
 class _Query extends Notifier<String> {
   @override
@@ -20,6 +21,11 @@ class _Query extends Notifier<String> {
 }
 
 final _queryProvider = NotifierProvider<_Query, String>(_Query.new);
+
+/// Clears the search field and its results; the Search tab is never disposed (kept mounted like
+/// every other tab, see [_BranchStack] in router.dart), so without this, returning to it from
+/// elsewhere in the app shows the previous query/results instead of a blank search bar.
+void resetSearch(WidgetRef ref) => ref.read(_queryProvider.notifier).set('');
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -30,28 +36,38 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   late final _controller = TextEditingController(text: ref.read(_queryProvider));
+  // The results' own scope, so Down from the field can target its first card directly: the field
+  // is narrower than and centered differently from the rails below it, so Flutter's geometric
+  // `focusInDirection` can land on the 2nd/3rd card instead of the 1st.
+  final _resultsScope = FocusScopeNode(debugLabel: 'search-results');
   // A focused TextField swallows the vertical arrows (cursor to line start/end), which strands a
   // D-pad user in the field: hand them to focus traversal so DOWN reaches the results.
   late final _fieldFocus = FocusNode(
     debugLabel: 'search',
     onKeyEvent: (node, event) {
       if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
-      final dir = switch (event.logicalKey) {
-        LogicalKeyboardKey.arrowDown => TraversalDirection.down,
-        LogicalKeyboardKey.arrowUp => TraversalDirection.up,
-        _ => null,
-      };
-      if (dir == null) return KeyEventResult.ignored;
-      return node.focusInDirection(dir) ? KeyEventResult.handled : KeyEventResult.ignored;
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown) return _focusFirstResult() ? KeyEventResult.handled : KeyEventResult.ignored;
+      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        return node.focusInDirection(TraversalDirection.up) ? KeyEventResult.handled : KeyEventResult.ignored;
+      }
+      return KeyEventResult.ignored;
     },
   );
   Timer? _debounce;
+
+  bool _focusFirstResult() {
+    final target = _resultsScope.focusedChild ?? topLeftFocusable(_resultsScope);
+    if (target == null) return false;
+    target.requestFocus();
+    return true;
+  }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
     _fieldFocus.dispose();
+    _resultsScope.dispose();
     super.dispose();
   }
 
@@ -70,6 +86,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // An external reset() (leaving and coming back to this tab) only clears the provider; sync
+    // the text field, which otherwise keeps showing the stale query it was built with.
+    ref.listen<String>(_queryProvider, (prev, next) {
+      if (next.isEmpty && _controller.text.isNotEmpty) _controller.clear();
+    });
     final query = ref.watch(_queryProvider);
     final results = ref.watch(searchProvider(query));
     final top = MediaQuery.paddingOf(context).top;
@@ -87,7 +108,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 focusNode: _fieldFocus,
                 controller: _controller,
                 textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _fieldFocus.focusInDirection(TraversalDirection.down),
+                onSubmitted: (_) => _focusFirstResult(),
                 style: Theme.of(context).textTheme.titleMedium,
                 decoration: InputDecoration(
                   hintText: l10n.searchHint,
@@ -120,9 +141,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 if (r.isEmpty) return EmptyState(icon: Icons.search_off_rounded, message: l10n.noResults);
                 final posterW = form.isMobile ? 120.0 : 160.0;
                 final channelW = form.isMobile ? 150.0 : 190.0;
-                return ListView(
-                  padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
-                  children: [
+                return FocusScope(
+                  node: _resultsScope,
+                  child: FocusTraversalGroup(
+                    child: ListView(
+                      padding: EdgeInsets.only(bottom: 32 + MediaQuery.paddingOf(context).bottom),
+                      children: [
                     if (r.channels.isNotEmpty)
                       Shelf(
                         title: l10n.liveTv,
@@ -179,7 +203,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           );
                         },
                       ),
-                  ],
+                    ],
+                  ),
+                  ),
                 );
               },
             ),

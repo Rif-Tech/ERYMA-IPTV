@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,8 +17,25 @@ import '../../widgets/format.dart';
 import '../content/content_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
+import '../shell/app_shell.dart' show topLeftFocusable;
 import 'featured_provider.dart';
 import 'hero_carousel.dart';
+
+/// Scope of the last shelf on the home page, so the footer's Up key can return focus to exactly
+/// that row instead of Flutter's geometric traversal, which can land elsewhere (see _Footer).
+final _lastShelfScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'home-last-shelf');
+  ref.onDispose(node.dispose);
+  return node;
+});
+
+/// Scope of the first shelf ("Reprendre la lecture"), so Down from the hero's Lire/Infos buttons
+/// can target it directly instead of Flutter's geometric traversal (see [HeroCarousel]).
+final firstShelfScopeProvider = Provider<FocusScopeNode>((ref) {
+  final node = FocusScopeNode(debugLabel: 'home-first-shelf');
+  ref.onDispose(node.dispose);
+  return node;
+});
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -39,6 +57,7 @@ class HomeScreen extends ConsumerWidget {
     }
 
     final hero = ref.watch(featuredHeroProvider((playlist.id, l10n.series)));
+    final lastShelfScope = ref.watch(_lastShelfScopeProvider);
     final account = decodeAccountInfo(playlist.accountInfo);
     final exp = account['exp_date'] != null && account['exp_date'] != 'null' ? DateTime.tryParse(account['exp_date']!) : playlist.expiresAt;
     final topInset = MediaQuery.paddingOf(context).top;
@@ -58,16 +77,21 @@ class HomeScreen extends ConsumerWidget {
             ),
             if (heroItems.isEmpty && !hero.isLoading)
               SliverToBoxAdapter(child: _QuickLinks(form: form)),
-            SliverToBoxAdapter(child: _ContinueWatchingShelf(playlistId: playlist.id, form: form)),
+            SliverToBoxAdapter(
+              child: FocusScope(node: ref.watch(firstShelfScopeProvider), child: _ContinueWatchingShelf(playlistId: playlist.id, form: form)),
+            ),
             SliverToBoxAdapter(child: _RecentChannelsShelf(playlistId: playlist.id, form: form)),
             SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: false)),
-            SliverToBoxAdapter(child: _PosterShelf(playlistId: playlist.id, form: form, series: true)),
+            SliverToBoxAdapter(
+              child: FocusScope(node: lastShelfScope, child: _PosterShelf(playlistId: playlist.id, form: form, series: true)),
+            ),
             SliverToBoxAdapter(
               child: _Footer(
                 playlist: playlist,
                 expires: exp,
                 account: account,
                 use24h: settings.use24hClock,
+                lastShelfScope: lastShelfScope,
                 // Generous bottom room: TV overscan and the focus-scroll of the last shelf must never clip it.
                 padding: EdgeInsets.fromLTRB(context.tokens.pageGutter, 28, context.tokens.pageGutter, 72 + MediaQuery.paddingOf(context).bottom),
               ),
@@ -153,12 +177,20 @@ class _QuickLinks extends ConsumerWidget {
 }
 
 class _Footer extends StatelessWidget {
-  const _Footer({required this.playlist, required this.expires, required this.account, required this.use24h, required this.padding});
+  const _Footer({
+    required this.playlist,
+    required this.expires,
+    required this.account,
+    required this.use24h,
+    required this.padding,
+    required this.lastShelfScope,
+  });
   final Playlist playlist;
   final DateTime? expires;
   final Map<String, String?> account;
   final bool use24h;
   final EdgeInsets padding;
+  final FocusScopeNode lastShelfScope;
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +204,20 @@ class _Footer extends StatelessWidget {
       // view so the last lines are never hidden behind the TV's overscan.
       onFocusChange: (f) {
         if (f) Scrollable.ensureVisible(context, alignment: 1, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+      },
+      // The "Changer de playlist" pill sits at the row's right edge; Flutter's directional
+      // traversal is geometric (nearest overlap in the pressed direction), so when nothing in the
+      // shelf above happens to overlap that x-band it falls back to a horizontal-proximity
+      // heuristic that can land on the hero's Info button instead of the row directly above.
+      // Redirect Up explicitly to that row rather than leaving the choice to the heuristic.
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+        if (event.logicalKey != LogicalKeyboardKey.arrowUp) return KeyEventResult.ignored;
+        final remembered = lastShelfScope.focusedChild;
+        final child = (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(lastShelfScope);
+        if (child == null) return KeyEventResult.ignored;
+        child.requestFocus();
+        return KeyEventResult.handled;
       },
       child: Padding(
         padding: padding,

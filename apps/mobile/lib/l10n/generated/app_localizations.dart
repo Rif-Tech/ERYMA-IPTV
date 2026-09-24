@@ -1268,6 +1268,12 @@ abstract class AppLocalizations {
   /// **'Software — works everywhere, slower'**
   String get decoderSoftware;
 
+  /// No description provided for @qualityNotSupportedLowEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'This quality is not supported on this device'**
+  String get qualityNotSupportedLowEnd;
+
   /// No description provided for @performanceMode.
   ///
   /// In en, this message translates to:
