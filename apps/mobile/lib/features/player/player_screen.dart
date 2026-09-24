@@ -520,6 +520,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _seekCommitTimer?.cancel();
     if (_pendingSeek.value == null) return;
     final target = _position.value;
+    _telemetry.seeked(target);
     await _player.seek(target);
     _pendingSeek.value = null;
     _seekHold = null;

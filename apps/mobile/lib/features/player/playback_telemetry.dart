@@ -54,6 +54,9 @@ class PlaybackTelemetry {
   int _stalls = 0;
   Duration _stallTime = Duration.zero;
   Stopwatch? _stall;
+  bool _stallFromSeek = false;
+  DateTime? _lastSeek;
+  int _seekBuffers = 0;
   int _proxyRequestsAtOpen = 0;
   String? _lastLog;
   Map<String, String> _stats = const {};
@@ -71,6 +74,7 @@ class PlaybackTelemetry {
     _stalls = 0;
     _stallTime = Duration.zero;
     _stall = null;
+    _seekBuffers = 0;
     _stats = const {};
     _proxyRequestsAtOpen = LocalDnsProxy.requests;
     final container = Telemetry.extensionOf(item.url);
@@ -153,15 +157,31 @@ class PlaybackTelemetry {
     }
   }
 
+  /// Called by the player on each committed seek (D-pad or touch).
+  void seeked(Duration target) {
+    if (!_active) return;
+    _lastSeek = DateTime.now();
+    Telemetry.breadcrumb('player', 'seek to ${target.inSeconds} s', level: SentryLevel.debug);
+  }
+
   void _onBuffering(bool buffering) {
     if (!_active || _firstFrameMs == null) return;
     if (buffering) {
-      _stall ??= Stopwatch()..start();
+      if (_stall == null) {
+        _stall = Stopwatch()..start();
+        // Refilling the buffer right after a user seek is expected, not a network stall.
+        _stallFromSeek = _lastSeek != null && DateTime.now().difference(_lastSeek!) < const Duration(seconds: 3);
+      }
       return;
     }
     final stall = _stall;
     if (stall == null) return;
     _stall = null;
+    if (_stallFromSeek) {
+      _seekBuffers++;
+      Telemetry.breadcrumb('player', 'rebuffer after seek ${stall.elapsedMilliseconds} ms', level: SentryLevel.debug);
+      return;
+    }
     _stalls++;
     _stallTime += stall.elapsed;
     if (stall.elapsed > const Duration(seconds: 2)) {
@@ -325,6 +345,7 @@ class PlaybackTelemetry {
       'watched_s': watched.inSeconds,
       'first_frame_ms': _firstFrameMs,
       'stalls': _stalls,
+      'seek_rebuffers': _seekBuffers,
       'stall_ms': _stallTime.inMilliseconds,
       'frame_drops': drops,
       'decoder_frame_drops': decoderDrops,

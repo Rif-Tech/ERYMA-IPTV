@@ -51,6 +51,9 @@ class LocalDnsProxy {
   }
 
   Future<void> _handle(Socket client) async {
+    // mpv resets connections it no longer needs (seek, zap, close): the resulting write error
+    // surfaces on `done`, and unhandled it reached Sentry as fatal (FLUTTER-J/K).
+    client.done.then((_) {}, onError: (Object _) {});
     final buffer = BytesBuilder();
     late final StreamSubscription<Uint8List> sub;
     final headerReceived = Completer<void>();
@@ -108,12 +111,14 @@ class LocalDnsProxy {
         final port = hostPort.length > 1 ? int.tryParse(hostPort[1]) ?? 443 : 443;
         final address = await _resolve(host);
         upstream = await Socket.connect(address, port);
+        upstream.done.then((_) {}, onError: (Object _) {});
         client.add(ascii.encode('HTTP/1.1 200 Connection Established\r\n\r\n'));
       } else {
         final url = Uri.parse(parts[1]);
         targetHost = url.host;
         final address = await _resolve(url.host);
         upstream = await Socket.connect(address, url.hasPort ? url.port : 80);
+        upstream.done.then((_) {}, onError: (Object _) {});
         final path = url.path.isEmpty ? '/' : url.path;
         final query = url.hasQuery ? '?${url.query}' : '';
         final version = parts.length > 2 ? parts[2] : 'HTTP/1.1';

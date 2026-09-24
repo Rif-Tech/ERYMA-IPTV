@@ -405,7 +405,15 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
           return;
         case HeroTarget.series:
           final s = h.series!;
-          final eps = await ref.read(episodesProvider(s.seriesId).future);
+          // Listened for the duration of the load: an unlistened autoDispose provider is disposed
+          // mid-await (Sentry FLUTTER-E, "Cannot use the Ref ... after it has been disposed").
+          final sub = ref.listenManual(episodesProvider(s.seriesId), (_, _) {});
+          final List<Episode> eps;
+          try {
+            eps = await ref.read(episodesProvider(s.seriesId).future);
+          } finally {
+            sub.close();
+          }
           if (!context.mounted) return;
           if (eps.isEmpty) throw StateError('no episodes');
           var index = 0;

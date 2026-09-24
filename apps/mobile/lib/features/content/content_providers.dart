@@ -189,9 +189,12 @@ final nowNextMapProvider = FutureProvider.autoDispose.family<Map<String, List<Ep
     final end = programs.firstOrNull?.end;
     if (end != null && (nextChange == null || end.isBefore(nextChange))) nextChange = end;
   }
-  if (nextChange != null) {
+  // Disposed during the awaits above (list scrolled away): no refresh to schedule (Sentry FLUTTER-M).
+  if (nextChange != null && ref.mounted) {
     final delay = nextChange.difference(now);
-    final timer = Timer(delay < const Duration(seconds: 30) ? const Duration(seconds: 30) : delay, ref.invalidateSelf);
+    final timer = Timer(delay < const Duration(seconds: 30) ? const Duration(seconds: 30) : delay, () {
+      if (ref.mounted) ref.invalidateSelf();
+    });
     ref.onDispose(timer.cancel);
   }
   return map;
@@ -211,9 +214,12 @@ final episodesProvider = FutureProvider.autoDispose.family<List<Episode>, String
   final playlist = ref.watch(activePlaylistProvider);
   if (playlist == null) return const [];
   final db = ref.watch(databaseProvider);
+  // Read before the await: an autoDispose provider read without a listener can be disposed during
+  // it, and any later ref use then throws (Sentry FLUTTER-E).
+  final importer = ref.read(playlistImporterProvider);
   final cached = await db.getEpisodes(playlist.id, seriesId);
   if (cached.isNotEmpty) return cached;
-  return ref.read(playlistImporterProvider).loadEpisodes(playlist, seriesId);
+  return importer.loadEpisodes(playlist, seriesId);
 });
 
 final channelGroupsProvider = StreamProvider.family<List<ChannelGroup>, String>((ref, playlistId) {
