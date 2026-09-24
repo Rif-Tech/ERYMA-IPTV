@@ -15,6 +15,7 @@ import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/log/app_logger.dart';
+import '../../core/log/telemetry.dart';
 import '../../core/net/dns_providers.dart';
 import '../../core/platform/native_platform.dart';
 import '../../core/player/playback.dart';
@@ -25,6 +26,7 @@ import '../../widgets/common.dart';
 import '../../widgets/format.dart';
 import '../content/content_providers.dart';
 import '../playlists/playlists_provider.dart';
+import 'playback_telemetry.dart';
 
 /// Skip applied per D-pad tap; repeats accelerate while the key is held.
 const _seekStep = Duration(seconds: 15);
@@ -95,7 +97,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
         title: 'MultIPTV',
         // Demuxer RAM cache; 32 MB is a noticeable slice of a 2 GB box shared with the OS.
         bufferSize: (ref.read(isLowEndDeviceProvider) ? 16 : 32) * 1024 * 1024,
-        logLevel: kDebugMode ? MPVLogLevel.warn : MPVLogLevel.error,
+        // Warnings carry the decoder story (hwdec rejected, profile unsupported): kept as Sentry
+        // breadcrumbs when it is configured.
+        logLevel: kDebugMode || Telemetry.enabled ? MPVLogLevel.warn : MPVLogLevel.error,
       ),
     );
     // Decode path ladder: direct (no copy) → hardware copy → software. Failures are remembered per
@@ -110,6 +114,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       },
     );
     _tunePlayer();
+    final dnsProxy = ref.read(dnsProxyProvider);
+    _telemetry = PlaybackTelemetry(
+      _player,
+      dnsMode: ref.read(settingsProvider).dnsMode.name,
+      proxyPort: dnsProxy.value,
+      proxyState: dnsProxy.hasError ? 'error: ${dnsProxy.error}' : (dnsProxy.isLoading ? 'loading' : 'ready'),
+      currentProxyPort: () => mounted ? ref.read(dnsProxyProvider).value : null,
+      isBenign: _isBenignError,
+      isDecoderError: _isDecoderError,
+    );
     unawaited(WakelockPlus.enable());
     WidgetsBinding.instance.addObserver(this);
 
@@ -181,6 +195,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _replayFocus.dispose();
     _forwardFocus.dispose();
     _saveProgress(flush: true);
+    _telemetry.dispose(_closeReason);
     for (final s in _subs) {
       s.cancel();
     }
@@ -220,6 +235,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     final start = _pendingStartMs;
     _pendingStartMs = null;
     await _tuned;
+    if (!mounted) return;
+    _telemetry.opened(_item, _path, index: _index, total: widget.request.items.length, startMs: start);
     try {
       await _player.open(
         Media(_item.url, httpHeaders: const {'User-Agent': 'MultIPTV/1.0'}, start: start == null ? null : Duration(milliseconds: start)),
@@ -235,6 +252,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   }
 
   late final Future<void> _tuned;
+  late final PlaybackTelemetry _telemetry;
+  String _closeReason = 'closed';
 
   static const _directUnsupportedKey = 'directDecodeUnsupported';
   static const _hardwareUnsupportedKey = 'hardwareCopyUnsupported';
@@ -335,6 +354,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       await prefs.setBool(_path == DecodePath.direct ? _directUnsupportedKey : _hardwareUnsupportedKey, true);
     }
     if (!mounted) return;
+    _closeReason = 'fallback to ${next.name}';
     final position = _isLive ? null : _position.value.inMilliseconds;
     context.pushReplacement(
       Routes.player,

@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:sentry_flutter/sentry_flutter.dart' show SentryLevel;
+
+import '../log/telemetry.dart';
 import 'dns_resolver.dart';
 
 /// Tiny loopback HTTP(S) forward proxy: mpv/ffmpeg resolve hostnames with `getaddrinfo` (the OS/
@@ -17,6 +20,13 @@ class LocalDnsProxy {
   ServerSocket? _server;
 
   int? get port => _server?.port;
+
+  /// Across every proxy instance of this run, reported with each playback: zero requests while a
+  /// custom DNS is active means mpv never went through the proxy at all.
+  static int requests = 0;
+  static int failures = 0;
+  static String? lastError;
+  static final _seenHosts = <String>{};
 
   Future<int> start() async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
@@ -87,17 +97,21 @@ class LocalDnsProxy {
     }
     final method = parts[0];
 
+    requests++;
+    String? targetHost;
     Socket upstream;
     try {
       if (method == 'CONNECT') {
         final hostPort = parts[1].split(':');
         final host = hostPort[0];
+        targetHost = host;
         final port = hostPort.length > 1 ? int.tryParse(hostPort[1]) ?? 443 : 443;
         final address = await _resolve(host);
         upstream = await Socket.connect(address, port);
         client.add(ascii.encode('HTTP/1.1 200 Connection Established\r\n\r\n'));
       } else {
         final url = Uri.parse(parts[1]);
+        targetHost = url.host;
         final address = await _resolve(url.host);
         upstream = await Socket.connect(address, url.hasPort ? url.port : 80);
         final path = url.path.isEmpty ? '/' : url.path;
@@ -112,7 +126,20 @@ class LocalDnsProxy {
         rewritten.write('\r\n');
         upstream.add(ascii.encode(rewritten.toString()));
       }
-    } catch (_) {
+      if (_seenHosts.add(targetHost)) {
+        Telemetry.breadcrumb('dns', 'proxy: first $method to $targetHost via $resolver', data: {'port': port});
+      }
+    } catch (e) {
+      failures++;
+      lastError = '$method $targetHost: $e';
+      Telemetry.breadcrumb('dns', 'proxy: $method $targetHost failed: $e', level: SentryLevel.error);
+      unawaited(Telemetry.capture(
+        'dns',
+        'DNS proxy could not reach $targetHost',
+        level: SentryLevel.error,
+        data: {'method': method, 'host': targetHost, 'resolver': '$resolver', 'error': '$e', 'port': port, 'requests': requests, 'failures': failures},
+        fingerprint: ['dns-proxy-failure', '$targetHost', '${e.runtimeType}'],
+      ));
       await sub.cancel();
       client.destroy();
       return;

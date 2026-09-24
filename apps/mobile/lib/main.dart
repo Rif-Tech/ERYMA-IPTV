@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +11,8 @@ import 'app/app.dart';
 import 'app/config.dart';
 import 'app/responsive.dart';
 import 'core/device/device_identity.dart';
+import 'core/log/remote_key_tracker.dart';
+import 'core/log/telemetry.dart';
 import 'core/net/dns_http_overrides.dart';
 import 'core/settings/settings.dart';
 
@@ -19,16 +20,7 @@ Future<void> main() async {
   // No DSN configured (no account provisioned by default, see AppConfig.sentryDsn): run normally,
   // without Sentry's native crash hooks or network activity.
   if (AppConfig.sentryDsn.isEmpty) return _bootstrap();
-  await SentryFlutter.init(
-    (options) {
-      options.dsn = AppConfig.sentryDsn;
-      // Native crashes (mpv/MediaCodec/GPU driver on a 4K decode) are the whole point here; Dart
-      // exceptions are also useful but far less likely to be silent on their own.
-      options.tracesSampleRate = 0;
-      options.environment = kReleaseMode ? 'production' : 'debug';
-    },
-    appRunner: _bootstrap,
-  );
+  await SentryFlutter.init(Telemetry.configure, appRunner: _bootstrap);
 }
 
 Future<void> _bootstrap() async {
@@ -49,17 +41,20 @@ Future<void> _bootstrap() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
-  runApp(
-    ProviderScope(
-      // Riverpod 3 retries failing providers forever by default, which hides errors as endless loading.
-      retry: (retryCount, error) => null,
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-        isTelevisionProvider.overrideWithValue(isTv),
-        isEmulatorProvider.overrideWithValue(isEmulator),
-        isLowEndDeviceProvider.overrideWithValue(lowEnd),
-      ],
-      child: const MultIptvApp(),
-    ),
+  Telemetry.tags({'is_tv': isTv, 'low_end': lowEnd, 'emulator': isEmulator});
+  if (Telemetry.enabled) RemoteKeyTracker.install();
+
+  final app = ProviderScope(
+    // Riverpod 3 retries failing providers forever by default, which hides errors as endless loading.
+    retry: (retryCount, error) => null,
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      isTelevisionProvider.overrideWithValue(isTv),
+      isEmulatorProvider.overrideWithValue(isEmulator),
+      isLowEndDeviceProvider.overrideWithValue(lowEnd),
+    ],
+    child: const MultIptvApp(),
   );
+  // SentryWidget is what lets events carry a screenshot / view hierarchy.
+  runApp(Telemetry.enabled ? SentryWidget(child: app) : app);
 }

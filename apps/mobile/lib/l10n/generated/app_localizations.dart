@@ -1370,6 +1370,24 @@ abstract class AppLocalizations {
   /// **'No active playlist to test against.'**
   String get dnsTestNoPlaylist;
 
+  /// No description provided for @reportProblem.
+  ///
+  /// In en, this message translates to:
+  /// **'Report a problem'**
+  String get reportProblem;
+
+  /// No description provided for @reportProblemHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Sends the log of your recent actions for analysis.'**
+  String get reportProblemHint;
+
+  /// No description provided for @problemReported.
+  ///
+  /// In en, this message translates to:
+  /// **'Report sent (ref. {id}).'**
+  String problemReported(String id);
+
   /// No description provided for @clearCache.
   ///
   /// In en, this message translates to:

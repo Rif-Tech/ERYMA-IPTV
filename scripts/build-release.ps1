@@ -1,11 +1,13 @@
 # Builds the release APKs: one per ABI (smallest download for a given box) plus a universal one
 # for the single `apk_link` published in the admin portal. Output goes to dist\.
-# Usage: .\scripts\build-release.ps1 [-PortalUrl https://portail.example.com] [-SentryDsn https://...] [-SkipUniversal]
+# Usage: .\scripts\build-release.ps1 [-PortalUrl https://portail.example.com] [-SentryDsn https://...] [-SentryScreenshots] [-SkipUniversal]
 # -PortalUrl is only the offline fallback: at runtime the app uses the URL set in /admin/config.
-# -SentryDsn enables crash reporting in the built APK (empty = disabled, see AppConfig.sentryDsn).
+# -SentryDsn overrides the Sentry project (defaults to riftech/flutter, see AppConfig.sentryDsn).
+# -SentryScreenshots attaches a screenshot to Sentry events (shows playlist content: test boxes only).
 param(
   [string]$PortalUrl = $(if ($env:PORTAL_URL) { $env:PORTAL_URL } else { 'http://100.88.208.52:3000' }),
-  [string]$SentryDsn = $env:SENTRY_DSN,
+  [string]$SentryDsn = $(if ($env:SENTRY_DSN) { $env:SENTRY_DSN } else { 'https://757e4c71210c7a22d2643a5ac60d0a64@o4512137347006464.ingest.de.sentry.io/4512137696903248' }),
+  [switch]$SentryScreenshots,
   [switch]$SkipUniversal
 )
 
@@ -36,7 +38,8 @@ try {
   if (-not $SentryDsn) { Write-Warning 'No Sentry DSN (-SentryDsn or $env:SENTRY_DSN): this build will not report crashes.' }
   $common = @(
     '--release', '--obfuscate', "--split-debug-info=$app\build\symbols", '--tree-shake-icons',
-    "--dart-define=PORTAL_URL=$PortalUrl", "--dart-define=SENTRY_DSN=$SentryDsn"
+    "--dart-define=PORTAL_URL=$PortalUrl", "--dart-define=SENTRY_DSN=$SentryDsn",
+    "--dart-define=SENTRY_SCREENSHOTS=$(if ($SentryScreenshots) { 'true' } else { 'false' })"
   )
 
   flutter build apk @common --split-per-abi

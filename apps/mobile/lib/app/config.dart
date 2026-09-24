@@ -46,7 +46,14 @@ abstract final class AppConfig {
 
   static const appName = 'MultIPTV';
 
-  /// Sentry DSN for native crash / Dart exception reporting. Empty disables it entirely (no
-  /// account is provisioned by default — see docs/api.md for how to set one up).
-  static const sentryDsn = String.fromEnvironment('SENTRY_DSN');
+  /// Sentry DSN (project `riftech/flutter`). Public by design: it only allows sending events.
+  /// `--dart-define=SENTRY_DSN=` (empty) disables Sentry entirely.
+  static const sentryDsn = String.fromEnvironment(
+    'SENTRY_DSN',
+    defaultValue: 'https://757e4c71210c7a22d2643a5ac60d0a64@o4512137347006464.ingest.de.sentry.io/4512137696903248',
+  );
+
+  /// Attaches a screenshot to Sentry events. Off by default: a screenshot shows playlist content
+  /// (titles, posters), which otherwise never leaves the device. Meant for test boxes.
+  static const sentryScreenshots = bool.fromEnvironment('SENTRY_SCREENSHOTS');
 }

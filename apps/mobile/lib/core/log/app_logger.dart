@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../device/device_identity.dart';
 import 'log_sync.dart';
+import 'telemetry.dart';
 
 /// Buffers diagnostic log entries and flushes them to `device-logs` (Supabase), so a real device's
 /// failures (decoder fallback, import/pairing errors, ...) are visible to an admin/Claude session
@@ -37,6 +38,7 @@ class AppLogger {
   void _log(String level, String category, String message, Map<String, dynamic>? context) {
     // Always visible locally too, exactly like the debugPrint calls this complements.
     debugPrint('[$level/$category] $message');
+    Telemetry.log(level, category, message, context);
     final uuid = ref.read(deviceIdentityProvider).value?.uuid;
     final entry = LogEntry(
       level: level,

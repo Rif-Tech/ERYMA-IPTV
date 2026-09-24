@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:sentry_flutter/sentry_flutter.dart' show SentryLevel;
+
+import '../log/telemetry.dart';
 import 'dns_message.dart';
 
 /// Resolves hostnames to addresses; implementations may bypass the OS/operator DNS entirely.
@@ -16,6 +19,9 @@ class SystemResolver implements DnsResolver {
 
   @override
   Future<List<InternetAddress>> lookup(String host) => InternetAddress.lookup(host);
+
+  @override
+  String toString() => 'system';
 }
 
 /// Plain UDP DNS (port 53) against one or more resolver IPs, IPv4 first then IPv6, first reply wins.
@@ -35,12 +41,17 @@ class UdpResolver implements DnsResolver {
         ]).timeout(timeout);
         final all = [...results[0], ...results[1]];
         if (all.isNotEmpty) return all;
-      } catch (_) {
+        Telemetry.breadcrumb('dns', 'udp ${server.address}: no answer for $host', level: SentryLevel.warning);
+      } catch (e) {
         // Try the next configured server.
+        Telemetry.breadcrumb('dns', 'udp ${server.address} failed for $host: $e', level: SentryLevel.warning);
       }
     }
     return const [];
   }
+
+  @override
+  String toString() => 'udp(${servers.map((s) => s.address).join(',')})';
 
   Future<List<InternetAddress>> _query(InternetAddress server, String host, {required int type}) async {
     final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -91,15 +102,22 @@ class DohResolver implements DnsResolver {
       final request = await client.getUrl(uri).timeout(timeout);
       request.headers.set('accept', 'application/dns-message');
       final response = await request.close().timeout(timeout);
-      if (response.statusCode != 200) return const [];
+      if (response.statusCode != 200) {
+        Telemetry.breadcrumb('dns', 'doh $url: HTTP ${response.statusCode} for $host (type $type)', level: SentryLevel.warning);
+        return const [];
+      }
       final bytes = await response.fold<List<int>>([], (acc, chunk) => acc..addAll(chunk));
       return DnsMessage.decodeResponse(Uint8List.fromList(bytes)).answers;
-    } catch (_) {
+    } catch (e) {
+      Telemetry.breadcrumb('dns', 'doh $url failed for $host (type $type): $e', level: SentryLevel.warning);
       return const [];
     } finally {
       client.close(force: true);
     }
   }
+
+  @override
+  String toString() => 'doh($url)';
 }
 
 /// Wraps a resolver with a short-lived in-memory cache (per-app-run; ISP DNS blocks change rarely).
@@ -114,10 +132,20 @@ class CachingResolver implements DnsResolver {
   Future<List<InternetAddress>> lookup(String host) async {
     final cached = _cache[host];
     if (cached != null && DateTime.now().isBefore(cached.$1)) return cached.$2;
+    final sw = Stopwatch()..start();
     final result = await _inner.lookup(host);
+    Telemetry.breadcrumb(
+      'dns',
+      result.isEmpty ? '$host: resolution failed via $_inner' : '$host resolved via $_inner',
+      data: {'ms': sw.elapsedMilliseconds, 'addresses': result.take(3).map((a) => a.address).toList()},
+      level: result.isEmpty ? SentryLevel.error : SentryLevel.info,
+    );
     if (result.isNotEmpty) _cache[host] = (DateTime.now().add(ttl), result);
     return result;
   }
+
+  @override
+  String toString() => '$_inner';
 }
 
 /// Tries resolvers in order and returns the first non-empty result.
@@ -131,10 +159,14 @@ class ChainResolver implements DnsResolver {
       try {
         final result = await r.lookup(host);
         if (result.isNotEmpty) return result;
-      } catch (_) {
+      } catch (e) {
         // Try the next resolver.
+        Telemetry.breadcrumb('dns', '$r failed for $host: $e', level: SentryLevel.warning);
       }
     }
     return const [];
   }
+
+  @override
+  String toString() => resolvers.join(' → ');
 }
