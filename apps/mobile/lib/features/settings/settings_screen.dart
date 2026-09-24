@@ -221,14 +221,10 @@ class SettingsScreen extends ConsumerWidget {
             label: '${(s.subtitleScale * 100).round()} %',
             onChanged: n.setSubtitleScale,
           ),
-          ListTile(
-            leading: const Icon(Icons.color_lens_outlined),
-            title: Text(l10n.subtitleColor),
-            trailing: _SubtitleColorTile(
-              colors: const [0xFFFFFFFF, 0xFFFFEB3B, 0xFF4FC3F7, 0xFF81C784, 0xFFFF8A65],
-              value: s.subtitleColor,
-              onChanged: n.setSubtitleColor,
-            ),
+          _SubtitleColorTile(
+            colors: const [0xFFFFFFFF, 0xFFFFEB3B, 0xFF4FC3F7, 0xFF81C784, 0xFFFF8A65],
+            value: s.subtitleColor,
+            onChanged: n.setSubtitleColor,
           ),
           SwitchListTile(
             secondary: const Icon(Icons.format_color_fill),
@@ -403,10 +399,11 @@ class _SliderTileState extends State<_SliderTile> {
   }
 }
 
-/// Color swatch row for the D-pad, same pattern as [_SliderTile]: one focus node for the whole
-/// row (five separate small focusable circles are not reliably reachable by directional
-/// traversal), left/right immediately picks the next/previous color, up/down keep moving through
-/// the list.
+/// Color swatch row for the D-pad, same pattern as [_SliderTile]: the [FocusNode] sits on the
+/// whole [ListTile] (a full-width target, like the slider), not on the narrow trailing swatches
+/// themselves — a focus node confined to that small trailing area is not reliably reachable by
+/// directional traversal from the rows above/below. Left/right immediately picks the next/
+/// previous color; up/down keep moving through the list.
 class _SubtitleColorTile extends StatefulWidget {
   const _SubtitleColorTile({required this.colors, required this.value, required this.onChanged});
   final List<int> colors;
@@ -455,9 +452,20 @@ class _SubtitleColorTileState extends State<_SubtitleColorTile> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      focusNode: _node,
-      child: Wrap(
+    final scheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        focusNode: _node,
+        canRequestFocus: true,
+        onTap: () {},
+        child: ListTile(
+      selected: _node.hasFocus,
+      selectedTileColor: scheme.primary.withValues(alpha: 0.12),
+      leading: const Icon(Icons.color_lens_outlined),
+      title: Text(l10n.subtitleColor),
+      trailing: Wrap(
         spacing: 12,
         children: [
           for (final c in widget.colors)
@@ -483,6 +491,8 @@ class _SubtitleColorTileState extends State<_SubtitleColorTile> {
               ),
             ),
         ],
+      ),
+        ),
       ),
     );
   }

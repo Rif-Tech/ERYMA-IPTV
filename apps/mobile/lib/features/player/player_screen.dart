@@ -153,6 +153,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     }
     _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
     _open();
+    // `_overlay` starts true (the controls show briefly on launch), so unlike every later call,
+    // `_showOverlay()` never runs its "was hidden" branch here and never focuses Play — nothing
+    // owns the D-pad yet, which is why the on-launch controls don't respond until they've been
+    // hidden and re-shown once. Focus it explicitly for this first display.
+    if (_isTv) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _playFocus.requestFocus();
+      });
+    }
     _scheduleHide();
   }
 
@@ -536,7 +545,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     // traversal, which is unpredictable across this row (transport pill, progress bar, top row).
     if (_overlay && key == LogicalKeyboardKey.arrowUp) {
       final current = FocusManager.instance.primaryFocus;
-      debugPrint('DPAD_DEBUG up-intercept: current=${current?.debugLabel} isLive=$_isLive playFocus.hasFocus=${_playFocus.hasFocus}');
       FocusNode? target;
       if (_isLive) {
         if (current == _playFocus || current == _prevFocus) {
@@ -635,7 +643,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       child: Scaffold(
         backgroundColor: Colors.black,
         body: Focus(
-          autofocus: true,
+          // Never a focus target itself (only relays key events via bubbling): if this whole-screen
+          // node were focusable, it would compete with the transport buttons' own autofocus on
+          // launch, and any directional move that fails to find its next candidate could fall back
+          // to it — leaving primary focus on a screen-sized node that default traversal can't
+          // usefully navigate from, which looks like the D-pad "getting stuck" until the overlay is
+          // hidden and re-shown (which explicitly refocuses Play).
+          canRequestFocus: false,
+          skipTraversal: true,
           onKeyEvent: _onKey,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,

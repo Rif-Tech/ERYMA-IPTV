@@ -178,11 +178,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     final index = _index;
 
     final tabNodes = ref.watch(_tabFocusNodesProvider);
+    final bodyScope = ref.watch(bodyScopeProvider);
 
-    // Keeps the D-pad cursor on the tab that was just activated: the page swap can otherwise leave
-    // focus wherever Flutter's default traversal lands it.
-    void refocusTab(int i) => WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) tabNodes[i].requestFocus();
+    // Moves the D-pad cursor into the new page's content after a header tap. Scheduled as a
+    // post-frame callback so it runs after that page's own autofocus (if any) has already
+    // resolved for the frame, making the outcome deterministic instead of racing it.
+    void focusContent() => WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final remembered = bodyScope.focusedChild;
+          final child = (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(bodyScope);
+          (child ?? bodyScope).requestFocus();
         });
 
     void go(int i) {
@@ -197,12 +202,12 @@ class _AppShellState extends ConsumerState<AppShell> {
           if (_destinations[i].route == Routes.movies) ref.read(selectedCategoryProvider(ContentKind.vod).notifier).select(SpecialCategory.all);
           if (_destinations[i].route == Routes.series) ref.read(selectedCategoryProvider(ContentKind.series).notifier).select(SpecialCategory.all);
           widget.shell.goBranch(i, initialLocation: true);
-          refocusTab(i);
+          focusContent();
           return;
         }
       }
       widget.shell.goBranch(i, initialLocation: i == _index);
-      refocusTab(i);
+      focusContent();
     }
 
     // Nested routes (details) pop on their own; this only runs when a root tab is showing.
