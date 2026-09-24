@@ -3,15 +3,20 @@
 // on _EnumTile's dialog: RadioGroup binds D-pad Up/Down to immediate selection, not just focus.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sentry_flutter/sentry_flutter.dart' show SentryLevel;
 
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/images/artwork_cache.dart';
+import '../../core/log/app_logger.dart';
+import '../../core/log/telemetry.dart';
 import '../../core/net/dns_models.dart';
 import '../../core/net/dns_providers.dart';
 import '../../core/settings/settings.dart';
@@ -268,6 +273,24 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () async {
                 await ref.read(databaseProvider).clearHistory(playlist.id);
                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.cleared)));
+              },
+            ),
+          if (Telemetry.enabled)
+            ListTile(
+              leading: const Icon(Icons.bug_report_outlined),
+              title: Text(l10n.reportProblem),
+              subtitle: Text(l10n.reportProblemHint),
+              onTap: () async {
+                unawaited(ref.read(appLoggerProvider).flush());
+                final id = await Telemetry.capture(
+                  'user_report',
+                  'Problem reported from settings',
+                  level: SentryLevel.info,
+                  fingerprint: ['user-report', '${DateTime.now().microsecondsSinceEpoch}'],
+                );
+                if (context.mounted && id != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.problemReported('$id'.substring(0, 8)))));
+                }
               },
             ),
           ListTile(leading: const Icon(Icons.info_outline), title: Text(l10n.appName), subtitle: Text(l10n.disclaimer)),
@@ -656,6 +679,14 @@ class _DnsTestTileState extends ConsumerState<_DnsTestTile> {
       }
       final servers = ref.read(dnsServersProvider).value ?? kBuiltinDnsServers;
       final results = await probeDns(host, servers);
+      unawaited(Telemetry.capture(
+        'dns',
+        'DNS test run (${results.where((r) => r.ok).length}/${results.length} ok)',
+        level: SentryLevel.info,
+        data: {'host': host, for (final r in results) r.label: r.ok ? '${r.latency?.inMilliseconds} ms' : 'failed'},
+        fingerprint: ['dns-test'],
+        throttle: const Duration(minutes: 1),
+      ));
       if (!mounted) return;
       await showDialog<void>(
         context: context,

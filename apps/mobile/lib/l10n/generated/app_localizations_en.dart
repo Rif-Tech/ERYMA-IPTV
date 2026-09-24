@@ -696,6 +696,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dnsTestNoPlaylist => 'No active playlist to test against.';
 
   @override
+  String get reportProblem => 'Report a problem';
+
+  @override
+  String get reportProblemHint =>
+      'Sends the log of your recent actions for analysis.';
+
+  @override
+  String problemReported(String id) {
+    return 'Report sent (ref. $id).';
+  }
+
+  @override
   String get clearCache => 'Clear cache';
 
   @override
