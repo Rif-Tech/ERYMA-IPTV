@@ -1364,6 +1364,12 @@ abstract class AppLocalizations {
   /// **'Checks which DNS can load your playlist\'s server'**
   String get dnsTestHint;
 
+  /// No description provided for @dnsTestIpHost.
+  ///
+  /// In en, this message translates to:
+  /// **'This playlist uses an IP address ({host}): no DNS is involved. If your internet provider blocks it, changing DNS will not help.'**
+  String dnsTestIpHost(String host);
+
   /// No description provided for @dnsTestNoPlaylist.
   ///
   /// In en, this message translates to:

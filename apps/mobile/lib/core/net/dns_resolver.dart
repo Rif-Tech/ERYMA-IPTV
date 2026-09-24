@@ -54,7 +54,8 @@ class UdpResolver implements DnsResolver {
   String toString() => 'udp(${servers.map((s) => s.address).join(',')})';
 
   Future<List<InternetAddress>> _query(InternetAddress server, String host, {required int type}) async {
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    // An IPv4 socket cannot reach an IPv6 resolver (errno 97, Sentry FLUTTER-8/9): bind per family.
+    final socket = await RawDatagramSocket.bind(server.type == InternetAddressType.IPv6 ? InternetAddress.anyIPv6 : InternetAddress.anyIPv4, 0);
     try {
       final query = DnsMessage.encodeQuery(host, type: type);
       socket.send(query, server, 53);
@@ -71,6 +72,10 @@ class UdpResolver implements DnsResolver {
         } finally {
           sub.cancel();
         }
+      }, onError: (Object e) {
+        // A failed send can also surface here, asynchronously; unhandled, it reached Sentry as fatal.
+        if (!completer.isCompleted) completer.completeError(e);
+        sub.cancel();
       });
       return await completer.future.timeout(timeout);
     } finally {
@@ -130,6 +135,9 @@ class CachingResolver implements DnsResolver {
 
   @override
   Future<List<InternetAddress>> lookup(String host) async {
+    // An IP address needs no resolution; asking a DNS server for it only ever "fails".
+    final literal = InternetAddress.tryParse(host);
+    if (literal != null) return [literal];
     final cached = _cache[host];
     if (cached != null && DateTime.now().isBefore(cached.$1)) return cached.$2;
     final sw = Stopwatch()..start();

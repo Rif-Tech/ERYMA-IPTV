@@ -4,6 +4,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
+import 'dart:io' show InternetAddress;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -677,6 +678,21 @@ class _DnsTestTileState extends ConsumerState<_DnsTestTile> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).dnsTestNoPlaylist)));
         return;
       }
+      if (InternetAddress.tryParse(host) != null) {
+        // The panel is reached by IP (Sentry FLUTTER-A: every custom DNS "failed" resolving an IP):
+        // no DNS is ever involved for this playlist, so testing or changing one cannot help.
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(AppLocalizations.of(context).dnsTest),
+              content: Text(AppLocalizations.of(context).dnsTestIpHost(host)),
+              actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).close))],
+            ),
+          );
+        }
+        return;
+      }
       final servers = ref.read(dnsServersProvider).value ?? kBuiltinDnsServers;
       final results = await probeDns(host, servers);
       unawaited(Telemetry.capture(
@@ -692,18 +708,21 @@ class _DnsTestTileState extends ConsumerState<_DnsTestTile> {
         context: context,
         builder: (context) => AlertDialog(
           title: Text(AppLocalizations.of(context).dnsTest),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final r in results)
-                ListTile(
-                  dense: true,
-                  leading: Icon(r.ok ? Icons.check_circle : Icons.cancel, color: r.ok ? Colors.greenAccent : Colors.redAccent),
-                  title: Text(r.label),
-                  trailing: r.latency != null ? Text('${r.latency!.inMilliseconds} ms') : null,
-                ),
-            ],
+          // Seven servers do not fit a 540 dp-high TV screen (Sentry FLUTTER-C, 6 px overflow).
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final r in results)
+                  ListTile(
+                    dense: true,
+                    leading: Icon(r.ok ? Icons.check_circle : Icons.cancel, color: r.ok ? Colors.greenAccent : Colors.redAccent),
+                    title: Text(r.label),
+                    trailing: r.latency != null ? Text('${r.latency!.inMilliseconds} ms') : null,
+                  ),
+              ],
+            ),
           ),
           actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).close))],
         ),

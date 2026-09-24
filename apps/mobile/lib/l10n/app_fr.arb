@@ -216,6 +216,7 @@
   "dnsCustomAddressesHint": "ex. 1.1.1.1, 1.0.0.1",
   "dnsTest": "Tester le DNS",
   "dnsTestHint": "Vérifie quel DNS permet de joindre le serveur de votre liste",
+  "dnsTestIpHost": "Cette playlist utilise une adresse IP ({host}) : aucun DNS n'intervient. Si votre fournisseur d'accès la bloque, changer de DNS n'y changera rien.",
   "dnsTestNoPlaylist": "Aucune liste de lecture active à tester.",
   "reportProblem": "Signaler un problème",
   "reportProblemHint": "Envoie le journal de vos dernières actions pour analyse.",

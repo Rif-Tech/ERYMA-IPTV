@@ -30,7 +30,7 @@ class PlaybackTelemetry {
       _player.stream.error.listen(_onError),
       _player.stream.log.listen(_onLog),
     ]);
-    _sampler = Timer.periodic(const Duration(seconds: 30), (_) => unawaited(_sample()));
+    _sampler = Timer.periodic(const Duration(seconds: 10), (_) => unawaited(_sample()));
   }
 
   final Player _player;

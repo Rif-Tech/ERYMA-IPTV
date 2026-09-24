@@ -187,6 +187,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _seekCommitTimer?.cancel();
     _watchdog?.cancel();
     _progressFocus.dispose();
+    _keyFocus.dispose();
     _playFocus.dispose();
     _backFocus.dispose();
     _prevFocus.dispose();
@@ -261,6 +262,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   bool _fellBack = false;
   Timer? _watchdog;
   final _progressFocus = FocusNode(debugLabel: 'progress');
+  // Holds focus while the controls are hidden, so every key reaches [_onKey]. Without it focus
+  // fell back to the route's scope: the first press after the controls hid was lost (Right did
+  // not zap) or OK paused instead of only showing the controls (Sentry FLUTTER-4, FLUTTER-7).
+  final _keyFocus = FocusNode(debugLabel: 'player-keys');
   final _playFocus = FocusNode(debugLabel: 'play');
   // Overlay-visible Up routing needs to know which button is focused: back (top-left), the
   // channel-list toggle (live, top-right), and the transport row's outer buttons.
@@ -465,14 +470,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   void _scheduleHide() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && !_showList && _pendingSeek.value == null) setState(() => _overlay = false);
+      if (mounted && !_showList && _pendingSeek.value == null) _hideOverlay();
     });
+  }
+
+  void _hideOverlay() {
+    _hideTimer?.cancel();
+    setState(() => _overlay = false);
+    _keyFocus.requestFocus();
   }
 
   void _toggleOverlay() {
     if (_overlay) {
-      _hideTimer?.cancel();
-      setState(() => _overlay = false);
+      _hideOverlay();
     } else {
       _showOverlay();
     }
@@ -641,8 +651,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       return false;
     }
     if (_overlay && _isTv) {
-      _hideTimer?.cancel();
-      setState(() => _overlay = false);
+      _hideOverlay();
       return false;
     }
     return true;
@@ -678,9 +687,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
           // Play). Rather than opting out of focus entirely (which left nothing focused at all, so
           // key events never reached this handler in the first place), immediately hand focus to
           // Play whenever this node ends up holding it.
+          // While the controls are hidden this node keeps focus on purpose (see _keyFocus).
+          focusNode: _keyFocus,
           autofocus: true,
           onFocusChange: (hasFocus) {
-            if (hasFocus) _playFocus.requestFocus();
+            if (hasFocus && _overlay) _playFocus.requestFocus();
           },
           onKeyEvent: _onKey,
           child: GestureDetector(
