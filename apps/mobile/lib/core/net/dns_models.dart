@@ -91,12 +91,4 @@ const kBuiltinDnsServers = [
     ipv6: ['2a10:50c0::ad1:ff', '2a10:50c0::ad2:ff'],
     dohUrl: 'https://94.140.14.14/dns-query',
   ),
-  DnsServer(
-    id: 'builtin-mullvad',
-    name: 'Mullvad DNS',
-    provider: 'Mullvad',
-    ipv4: ['194.242.2.2'],
-    ipv6: ['2a07:e340::2'],
-    dohUrl: 'https://194.242.2.2/dns-query',
-  ),
 ];

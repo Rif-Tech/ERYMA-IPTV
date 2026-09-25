@@ -50,6 +50,7 @@ Neuf défauts remontés par l'usage réel sur box, en plus du 4K/crash ci-dessus
 
 - [x] **Remise à zéro d'une page par la barre d'onglets sans effet** (Sentry FLUTTER-14, 15, 16 : `scrollables_reset: 0`, accueil resté défilé). `goBranch()` ne bascule d'onglet qu'une frame plus tard : la page visée était encore `Offstage` au moment du reset. Le reset attend désormais que l'onglet soit affiché (`didUpdateWidget` d'`AppShell`). `topLeftFocusable` ignore aussi les `FocusScopeNode` : le focus tombait sur le scope du hero, et le premier appui était perdu.
 - [x] **Test DNS : premier appui perdu dans la boîte de résultats.** Aucun élément n'avait le focus à l'ouverture ; « Fermer » a désormais l'autofocus ([dns_settings_tiles.dart](../apps/mobile/lib/features/settings/dns_settings_tiles.dart)).
+- [x] **Préréglage DNS « Mullvad » inutilisable** (DoH refusé à la poignée TLS sur l'IP, pas de réponse en UDP) : retiré de `kBuiltinDnsServers`. Migration `20260925000000_dns_disable_mullvad.sql` (désactivation, pas de suppression) **non déployée** : à pousser sur demande, ou désactiver l'entrée dans `/admin/dns`. Un appareil qui l'avait choisi retombe sur le serveur par défaut.
 
 ## Logs diagnostiques (Supabase + Sentry)
 
