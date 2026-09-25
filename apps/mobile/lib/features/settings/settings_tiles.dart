@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/theme.dart';
+import '../../core/log/trace_tag.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 
@@ -19,7 +20,7 @@ class SettingsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return TraceTag(title.toLowerCase(), child: Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,7 +41,9 @@ class SettingsSection extends StatelessWidget {
                 children: [
                   for (final (i, c) in children.indexed) ...[
                     if (i > 0) Divider(indent: 56, endIndent: 16, color: context.tokens.glass),
-                    c,
+                    // The whole settings page is one list item: without these, every row traces
+                    // as `settings/v#0`.
+                    TraceTag('$i', child: c),
                   ],
                 ],
               ),
@@ -48,7 +51,7 @@ class SettingsSection extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -257,7 +260,7 @@ class SettingsEnumTile<T> extends StatelessWidget {
       onTap: () async {
         final picked = await showDialog<(T,)>(
           context: context,
-          builder: (context) => SimpleDialog(
+          builder: (context) => TraceTag('dialog/${title.toLowerCase()}', child: SimpleDialog(
             title: Text(title),
             children: [
               // No RadioGroup ancestor on purpose (hence the deprecated per-tile groupValue/
@@ -266,16 +269,16 @@ class SettingsEnumTile<T> extends StatelessWidget {
               // confirm and close the dialog on the first D-pad press instead of just moving
               // focus. Do not "fix" this deprecation warning by migrating to RadioGroup without
               // re-solving that problem first.
-              for (final v in values)
-                RadioListTile<T>(
+              for (final (i, v) in values.indexed)
+                TraceTag('$i', child: RadioListTile<T>(
                   autofocus: v == value,
                   value: v,
                   groupValue: value,
                   onChanged: (picked) => Navigator.pop(context, (picked as T,)),
                   title: Text(label(v)),
-                ),
+                )),
             ],
-          ),
+          )),
         );
         if (picked != null) onChanged(picked.$1);
       },

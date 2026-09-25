@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/log/trace_tag.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
@@ -128,7 +129,8 @@ class DetailLayout extends StatelessWidget {
     final g = t.pageGutter;
     final artHeight = wide ? (size.height * 0.58).clamp(320.0, 640.0) : (size.height * 0.42).clamp(240.0, 420.0);
 
-    return CustomScrollView(
+    // Shared by the movie and series screens: the route in the trace tells them apart.
+    return TraceTag('detail', child: CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
           child: SizedBox(
@@ -160,11 +162,11 @@ class DetailLayout extends StatelessWidget {
                 Positioned(
                   top: top + 8,
                   left: 8,
-                  child: IconButton(
+                  child: TraceTag('back', child: IconButton(
                     onPressed: () => Navigator.of(context).maybePop(),
                     icon: const Icon(Icons.arrow_back_rounded),
                     style: IconButton.styleFrom(backgroundColor: const Color(0x66000000)),
-                  ),
+                  )),
                 ),
                 Positioned(
                   left: g,
@@ -201,7 +203,9 @@ class DetailLayout extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 18),
-                            Wrap(spacing: 10, runSpacing: 10, children: actions),
+                            Wrap(spacing: 10, runSpacing: 10, children: [
+                              for (final (i, a) in actions.indexed) TraceTag('actions/$i', child: a),
+                            ]),
                           ],
                         ),
                       ),
@@ -249,6 +253,6 @@ class DetailLayout extends StatelessWidget {
           ),
         ),
       ],
-    );
+    ));
   }
 }

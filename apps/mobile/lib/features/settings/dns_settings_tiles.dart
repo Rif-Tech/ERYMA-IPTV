@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log/telemetry.dart';
+import '../../core/log/trace_tag.dart';
 import '../../core/net/dns_models.dart';
 import '../../core/net/dns_providers.dart';
 import '../../core/settings/settings.dart';
@@ -33,21 +34,21 @@ class DnsServerPickerTile extends ConsumerWidget {
       onTap: () async {
         final picked = await showDialog<(String,)>(
           context: context,
-          builder: (context) => SimpleDialog(
+          builder: (context) => TraceTag('dialog/dns-server', child: SimpleDialog(
             title: Text(l10n.dnsServer),
             children: [
               // See SettingsEnumTile: no RadioGroup ancestor, so Up/Down only move focus.
-              for (final d in servers)
-                RadioListTile<String>(
+              for (final (i, d) in servers.indexed)
+                TraceTag('$i', child: RadioListTile<String>(
                   autofocus: d.id == selected?.id,
                   value: d.id,
                   groupValue: selected?.id ?? '',
                   onChanged: (picked) => Navigator.pop(context, (picked as String,)),
                   title: Text(d.name),
                   subtitle: d.addresses.isNotEmpty ? Text(d.addresses.first) : null,
-                ),
+                )),
             ],
-          ),
+          )),
         );
         if (picked != null) await ref.read(settingsProvider.notifier).setDnsServerId(picked.$1);
       },
@@ -71,7 +72,7 @@ class DnsCustomAddressesTile extends ConsumerWidget {
         final controller = TextEditingController(text: s.dnsCustomAddresses ?? '');
         final value = await showDialog<String>(
           context: context,
-          builder: (context) => AlertDialog(
+          builder: (context) => TraceTag('dialog/dns-custom', child: AlertDialog(
             title: Text(l10n.dnsCustomAddresses),
             content: TextField(
               controller: controller,
@@ -82,7 +83,7 @@ class DnsCustomAddressesTile extends ConsumerWidget {
               TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.cancel)),
               FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: Text(l10n.save)),
             ],
-          ),
+          )),
         );
         if (value != null) await ref.read(settingsProvider.notifier).setDnsCustomAddresses(value.trim());
       },
@@ -136,7 +137,7 @@ class _DnsTestTileState extends ConsumerState<DnsTestTile> {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => TraceTag('dialog/dns-test', child: AlertDialog(
           title: Text(AppLocalizations.of(context).dnsTest),
           // Seven servers do not fit a 540 dp-high TV screen (Sentry FLUTTER-C, 6 px overflow).
           content: SingleChildScrollView(
@@ -162,7 +163,7 @@ class _DnsTestTileState extends ConsumerState<DnsTestTile> {
           // Nothing else in the dialog is focusable: without autofocus the first D-pad press was
           // spent reaching Close.
           actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).close))],
-        ),
+        )),
       );
     } finally {
       if (mounted) setState(() => _running = false);

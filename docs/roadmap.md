@@ -53,6 +53,7 @@ Neuf défauts remontés par l'usage réel sur box, en plus du 4K/crash ci-dessus
 - [x] **Préréglage DNS « Mullvad » inutilisable** (DoH refusé à la poignée TLS sur l'IP, pas de réponse en UDP) : retiré de `kBuiltinDnsServers`. Migration `20260925000000_dns_disable_mullvad.sql` (désactivation, pas de suppression) **non déployée** : à pousser sur demande, ou désactiver l'entrée dans `/admin/dns`. Un appareil qui l'avait choisi retombe sur le serveur par défaut.
 - [x] **Faux positifs des alertes D-pad** (Sentry FLUTTER-Y, Z, 10, 11, 13, P, 1A). « A quitté sa rangée » ne se déclenche plus qu'en sortant d'une liste horizontale (`h#`), pas entre le rail de catégories et la grille. « Flèche sans effet » ignore les touches traitées par un gestionnaire (hero qui change de diapo) et celles pressées au bout d'une liste ([remote_key_tracker.dart](../apps/mobile/lib/core/log/remote_key_tracker.dart)).
 - [x] **Rapports et tests DNS mélangés aux issues** (Sentry FLUTTER-17, 19, A). « Signaler un problème » part en retour utilisateur (`Telemetry.feedback`, section User Feedback de Sentry), avec le fil d'Ariane ; le test DNS n'est plus qu'une ligne de log.
+- [x] **Chemins anonymes dans la trace D-pad** : réglages (tout en `settings/v#0`), fiches film/série (`node:…`), dialogues. `TraceTag` ajoutés : `settings/<section>/<n>`, `detail/actions/<n>`, `detail/back`, `seasons`, `episodes`, `dialog/<nom>/<n>`.
 
 ## Logs diagnostiques (Supabase + Sentry)
 

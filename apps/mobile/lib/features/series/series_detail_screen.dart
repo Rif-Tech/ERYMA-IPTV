@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/responsive.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/log/trace_tag.dart';
 import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
@@ -119,7 +120,7 @@ class SeriesDetailScreen extends ConsumerWidget {
                         Flexible(
                           child: SizedBox(
                             height: 40,
-                            child: ListView.separated(
+                            child: TraceTag('seasons', child: ListView.separated(
                               scrollDirection: Axis.horizontal,
                               reverse: true,
                               shrinkWrap: true,
@@ -133,7 +134,7 @@ class SeriesDetailScreen extends ConsumerWidget {
                                   onSelected: (_) => ref.read(_seasonProvider.notifier).set(season),
                                 );
                               },
-                            ),
+                            )),
                           ),
                         ),
                     ],
@@ -148,12 +149,12 @@ class SeriesDetailScreen extends ConsumerWidget {
                         onTap: () => playEpisodes(context, ref, eps, eps.indexOf(e), seriesName: s.name),
                       )
                   else
-                    _EpisodeShelf(
+                    TraceTag('episodes', child: _EpisodeShelf(
                       episodes: visible,
                       history: histById,
                       fallbackImage: s.cover,
                       onTap: (e) => playEpisodes(context, ref, eps, eps.indexOf(e), seriesName: s.name),
-                    ),
+                    )),
                 ],
               ),
             ),

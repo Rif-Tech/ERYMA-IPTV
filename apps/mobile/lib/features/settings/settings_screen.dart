@@ -11,6 +11,7 @@ import '../../core/db/database.dart';
 import '../../core/images/artwork_cache.dart';
 import '../../core/log/app_logger.dart';
 import '../../core/log/telemetry.dart';
+import '../../core/log/trace_tag.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/pin_dialog.dart';
@@ -29,7 +30,7 @@ class SettingsScreen extends ConsumerWidget {
     final n = ref.read(settingsProvider.notifier);
     final playlist = ref.watch(activePlaylistProvider);
 
-    return ListView(
+    return TraceTag('settings', child: ListView(
       padding: EdgeInsets.fromLTRB(
         context.tokens.pageGutter,
         MediaQuery.paddingOf(context).top + 12,
@@ -295,6 +296,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
       ],
-    );
+    ));
   }
 }
