@@ -13,9 +13,10 @@ import 'trace_tag.dart';
 /// position once scrolling has settled, the scroll offsets, and which custom handler acted on the
 /// key ([note]). Reports, as events:
 /// - focus lost: after a key, nothing (or only a bare FocusScope) holds the primary focus;
-/// - stuck: the same arrow pressed [_stuckThreshold] times in a row without focus moving;
+/// - stuck: the same arrow pressed [_stuckThreshold] times in a row without focus moving, no
+///   handler acting on it ([note]) and the list not already at its end in that direction;
 /// - off-screen: the focused element is still outside the screen once scrolling has settled;
-/// - row change: Left/Right moved focus out of the list it was in.
+/// - row change: Left/Right moved focus out of the horizontal list it was in (see [leftRow]).
 ///
 /// Observes only: the handler always returns false, so key dispatch is unchanged.
 abstract final class RemoteKeyTracker {
@@ -107,7 +108,7 @@ abstract final class RemoteKeyTracker {
 
     final horizontal = key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight;
     final isArrow = horizontal || key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown;
-    if (horizontal && moved && after != null && !route.startsWith('/player') && from.row != null && to.row != null && from.row != to.row) {
+    if (horizontal && moved && after != null && !route.startsWith('/player') && leftRow(from.path, to.path)) {
       unawaited(Telemetry.capture(
         'dpad',
         '$label left its row on ${Telemetry.routeTemplate(route)}',
@@ -121,7 +122,9 @@ abstract final class RemoteKeyTracker {
     Timer(_settleDelay, () => _settled(seq, label, after, data));
 
     // The player remaps arrows (seek, zap, show controls) without moving focus: not "stuck" there.
-    if (!isArrow || moved || route.startsWith('/player')) {
+    // Neither is a key a handler acted on (the hero switching slides) nor one pressed against the
+    // end of a list (the last card of a shelf, the top of a page).
+    if (!isArrow || moved || route.startsWith('/player') || notes.isNotEmpty || from.atEdge(key)) {
       _stuckSignature = null;
       _stuckCount = 0;
       return;
@@ -165,6 +168,17 @@ abstract final class RemoteKeyTracker {
     }
   }
 
+  /// Whether a Left/Right from [from] to [to] left the horizontal list the focus was in (a shelf
+  /// row, `…/h#3`). Moving between side-by-side panes (categories rail ↔ content grid) or out of
+  /// a button group is the intended layout, not a bug.
+  @visibleForTesting
+  static bool leftRow(String from, String to) {
+    final cut = from.lastIndexOf('/');
+    if (cut <= 0 || !from.startsWith('h#', cut + 1)) return false;
+    final toCut = to.lastIndexOf('/');
+    return toCut <= 0 || to.substring(0, toCut) != from.substring(0, cut);
+  }
+
   static String _label(LogicalKeyboardKey key) => key.keyLabel.isNotEmpty ? key.keyLabel : '0x${key.keyId.toRadixString(16)}';
 
   /// Readable path of [node] (see [TraceTag.pathOf]) with its on-screen rectangle.
@@ -176,7 +190,7 @@ abstract final class RemoteKeyTracker {
 
 /// What the trace knows about one focused node at one instant.
 class _Snapshot {
-  _Snapshot({required this.path, this.rect, this.row, this.scrollV, this.scrollH, this.offscreen});
+  _Snapshot({required this.path, this.rect, this.row, this.scrollV, this.scrollH, this.offscreen, this.edges = const {}});
 
   final String path;
   final String? rect;
@@ -188,6 +202,12 @@ class _Snapshot {
 
   /// `left`/`right`/`top`/`bottom` when the node lies (partly) outside the screen.
   final String? offscreen;
+
+  /// Arrows that would push the enclosing lists past their ends (`up` at the top of a page,
+  /// `right` at the end of a shelf).
+  final Set<LogicalKeyboardKey> edges;
+
+  bool atEdge(LogicalKeyboardKey key) => edges.contains(key);
 
   static _Snapshot of(FocusNode? node) {
     if (node == null) return _Snapshot(path: 'none');
@@ -206,9 +226,20 @@ class _Snapshot {
     }
     int? scrollV;
     int? scrollH;
+    final edges = <LogicalKeyboardKey>{};
     if (context != null && context.mounted) {
-      scrollV = Scrollable.maybeOf(context, axis: Axis.vertical)?.position.pixels.round();
-      scrollH = Scrollable.maybeOf(context, axis: Axis.horizontal)?.position.pixels.round();
+      final v = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+      final h = Scrollable.maybeOf(context, axis: Axis.horizontal)?.position;
+      scrollV = v?.pixels.round();
+      scrollH = h?.pixels.round();
+      void edge(ScrollPosition? p, LogicalKeyboardKey back, LogicalKeyboardKey forward) {
+        if (p == null || !p.hasPixels || !p.hasContentDimensions) return;
+        if (p.pixels <= p.minScrollExtent + 1) edges.add(back);
+        if (p.pixels >= p.maxScrollExtent - 1) edges.add(forward);
+      }
+
+      edge(v, LogicalKeyboardKey.arrowUp, LogicalKeyboardKey.arrowDown);
+      edge(h, LogicalKeyboardKey.arrowLeft, LogicalKeyboardKey.arrowRight);
     }
     String? offscreen;
     final views = RendererBinding.instance.renderViews;
@@ -232,6 +263,7 @@ class _Snapshot {
       scrollV: scrollV,
       scrollH: scrollH,
       offscreen: offscreen,
+      edges: edges,
     );
   }
 }
