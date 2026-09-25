@@ -39,6 +39,9 @@ const kTopBarHeight = 72.0;
 FocusNode? topLeftFocusable(FocusScopeNode scope) {
   FocusNode? best;
   for (final n in scope.traversalDescendants) {
+    // A nested scope (a home row) is a container, not a target: focusing it lands on nothing
+    // visible and wastes the next key press. Its own children are listed here anyway.
+    if (n is FocusScopeNode) continue;
     if (best == null || n.rect.top < best.rect.top - 1 || (n.rect.top < best.rect.top + 1 && n.rect.left < best.rect.left)) {
       best = n;
     }
@@ -201,6 +204,9 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> {
   int get _index => widget.shell.currentIndex;
 
+  /// Tab opened from the bar whose page still has to be reset (index, route).
+  (int, String)? _pendingReset;
+
   // A new page starts scrolled to the top, so the bar must come back even without a scroll event.
   @override
   void didUpdateWidget(covariant AppShell old) {
@@ -210,7 +216,32 @@ class _AppShellState extends ConsumerState<AppShell> {
         if (mounted) ref.read(_barVisibleProvider.notifier).set(true);
       });
     }
+    // goBranch() switches the branch one frame later: only now is the target page onstage, so
+    // its scrollables can be found (before, _resetScrollables skipped it as Offstage).
+    final pending = _pendingReset;
+    if (pending != null && pending.$1 == _index) {
+      _pendingReset = null;
+      _resetAndFocusContent(pending.$2);
+    }
   }
+
+  // Opening a page from the tab bar shows it as if never visited: root route (no detail
+  // screen), default category, empty search, every list scrolled back to its start, and the
+  // D-pad cursor on the page's first element. Post-frame so the page has rebuilt first.
+  void _resetAndFocusContent(String route) => WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final bodyScope = ref.read(bodyScopeProvider);
+        final root = bodyScope.context;
+        final jumped = root is Element ? _resetScrollables(root) : 0;
+        // A second frame: the lists must lay out at their start before "top-left" means anything.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final child = topLeftFocusable(bodyScope);
+          (child ?? bodyScope).requestFocus();
+          Telemetry.breadcrumb('focus', 'page reset: $route', data: {'scrollables_reset': jumped, 'focus': TraceTag.pathOf(child)});
+        });
+        WidgetsBinding.instance.scheduleFrame();
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -220,24 +251,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     final index = _index;
 
     final tabNodes = ref.watch(_tabFocusNodesProvider);
-    final bodyScope = ref.watch(bodyScopeProvider);
-
-    // Opening a page from the tab bar shows it as if never visited: root route (no detail
-    // screen), default category, empty search, every list scrolled back to its start, and the
-    // D-pad cursor on the page's first element. Post-frame so the page has rebuilt first.
-    void resetAndFocusContent(String route) => WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final root = bodyScope.context;
-          final jumped = root is Element ? _resetScrollables(root) : 0;
-          // A second frame: the lists must lay out at their start before "top-left" means anything.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            final child = topLeftFocusable(bodyScope);
-            (child ?? bodyScope).requestFocus();
-            Telemetry.breadcrumb('focus', 'page reset: $route', data: {'scrollables_reset': jumped, 'focus': TraceTag.pathOf(child)});
-          });
-          WidgetsBinding.instance.scheduleFrame();
-        });
 
     void go(int i) {
       final route = _destinations[i].route;
@@ -247,7 +260,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (route == Routes.series) ref.read(selectedCategoryProvider(ContentKind.series).notifier).select(SpecialCategory.all);
       ref.read(pageResetProvider.notifier).bump();
       widget.shell.goBranch(i, initialLocation: true);
-      resetAndFocusContent(route);
+      if (i == _index) {
+        _resetAndFocusContent(route);
+      } else {
+        _pendingReset = (i, route);
+      }
     }
 
     // Nested routes (details) pop on their own; this only runs when a root tab is showing.

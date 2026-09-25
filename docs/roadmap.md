@@ -46,6 +46,10 @@ Neuf défauts remontés par l'usage réel sur box, en plus du 4K/crash ci-dessus
 - [x] **DNS avec une playlist servie par IP** : le choix du DNS reste possible, une mention explique qu'il ne s'applique pas à cette playlist, et le test vérifie les serveurs sur l'hôte de l'API.
 - [x] **Recherche : revenir sur la loupe rouvrait l'ancien résultat.** `resetSearch()` ([search_screen.dart](../apps/mobile/lib/features/search/search_screen.dart)) vide la requête et le champ de texte quand on revient sur cet onglet en provenance d'un autre (appelé depuis `AppShell.go()`).
 
+## Corrigés — analyse Sentry du 24/09 (session de test sur box)
+
+- [x] **Remise à zéro d'une page par la barre d'onglets sans effet** (Sentry FLUTTER-14, 15, 16 : `scrollables_reset: 0`, accueil resté défilé). `goBranch()` ne bascule d'onglet qu'une frame plus tard : la page visée était encore `Offstage` au moment du reset. Le reset attend désormais que l'onglet soit affiché (`didUpdateWidget` d'`AppShell`). `topLeftFocusable` ignore aussi les `FocusScopeNode` : le focus tombait sur le scope du hero, et le premier appui était perdu.
+
 ## Logs diagnostiques (Supabase + Sentry)
 
 - [x] **Infrastructure posée** : table `app_logs` (migration `20260924010000_app_logs.sql`, purge 48h opportuniste) + Edge Function `device-logs` (par lots, ≤500 items) + module `core/log/` côté app (buffer + debounce 15s + flush au passage en arrière-plan) + intégration Sentry (`sentry_flutter`, `SENTRY_DSN` optionnel) pour les crashs natifs, qu'aucun `try/catch` Dart ne peut voir. `sentry_dart_plugin` publie les symboles de debug (voir ci-dessus).
