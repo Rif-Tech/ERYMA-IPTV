@@ -66,7 +66,9 @@ class Shelf extends ConsumerWidget {
                   canRequestFocus: false,
                   skipTraversal: true,
                   onFocusChange: (f) {
-                    if (f && shelfContext.mounted) revealSection(shelfContext, reason: 'shelf card $i');
+                    if (!f) return;
+                    if (shelfContext.mounted) revealSection(shelfContext, reason: 'shelf card $i');
+                    if (context.mounted) revealInRow(context);
                   },
                   child: itemBuilder(context, i),
                 ),

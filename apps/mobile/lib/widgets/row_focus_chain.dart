@@ -22,20 +22,44 @@ void revealSection(BuildContext context, {String reason = 'section'}) {
   if (viewport == null) return;
   final position = scrollable.position;
   if (!position.hasPixels || !position.hasContentDimensions) return;
-  final alignTop = viewport.getOffsetToReveal(object, 0).offset - _revealMargin;
-  final alignBottom = viewport.getOffsetToReveal(object, 1).offset + _revealMargin;
-  var target = position.pixels;
-  if (alignBottom > alignTop) {
-    target = alignTop; // taller than the screen: show its start
-  } else if (position.pixels > alignTop) {
-    target = alignTop; // top cut off: scroll up just enough
-  } else if (position.pixels < alignBottom) {
-    target = alignBottom; // bottom cut off: scroll down just enough
-  }
-  target = target.clamp(position.minScrollExtent, position.maxScrollExtent);
-  if ((target - position.pixels).abs() < 1) return;
+  final target = _minimalOffset(viewport, object, position, _revealMargin);
+  if (target == null) return;
   Telemetry.breadcrumb('scroll', 'reveal $reason: page ${position.pixels.round()} → ${target.round()}', data: {'route': RemoteKeyTracker.route});
   position.animateTo(target, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+}
+
+/// Horizontal counterpart of [revealSection] for one card of a row: scrolls the row just enough
+/// for the card at [context] to be fully visible. Flutter's own reveal only runs for directional
+/// traversal; a card focused by [RowFocusChain] (remembered card) or while a key is held could
+/// stay off-screen.
+void revealInRow(BuildContext context) {
+  final object = context.findRenderObject();
+  final scrollable = Scrollable.maybeOf(context, axis: Axis.horizontal);
+  if (object == null || !object.attached || scrollable == null) return;
+  final viewport = RenderAbstractViewport.maybeOf(object);
+  if (viewport == null) return;
+  final position = scrollable.position;
+  if (!position.hasPixels || !position.hasContentDimensions) return;
+  final target = _minimalOffset(viewport, object, position, 0);
+  if (target == null) return;
+  position.animateTo(target, duration: const Duration(milliseconds: 160), curve: Curves.easeOutCubic);
+}
+
+/// Scroll offset that brings [object] fully inside the viewport (plus [margin]) with the least
+/// movement, its start first when it is larger than the viewport; null when already visible.
+double? _minimalOffset(RenderAbstractViewport viewport, RenderObject object, ScrollPosition position, double margin) {
+  final alignStart = viewport.getOffsetToReveal(object, 0).offset - margin;
+  final alignEnd = viewport.getOffsetToReveal(object, 1).offset + margin;
+  var target = position.pixels;
+  if (alignEnd > alignStart) {
+    target = alignStart; // larger than the viewport: show its start
+  } else if (position.pixels > alignStart) {
+    target = alignStart; // start cut off: scroll back just enough
+  } else if (position.pixels < alignEnd) {
+    target = alignEnd; // end cut off: scroll forward just enough
+  }
+  target = target.clamp(position.minScrollExtent, position.maxScrollExtent);
+  return (target - position.pixels).abs() < 1 ? null : target;
 }
 
 /// Where focus lands when entering [row]: the card it last held, else its top-left one, else the

@@ -45,4 +45,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(position.pixels, 600 - 24);
   });
+
+  testWidgets('revealInRow scrolls a row just enough for an off-screen card', (tester) async {
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final cards = List.generate(10, (_) => GlobalKey());
+    await tester.pumpWidget(MaterialApp(
+      home: ListView(scrollDirection: Axis.horizontal, children: [for (final k in cards) SizedBox(key: k, width: 200)]),
+    ));
+    final position = tester.state<ScrollableState>(find.byType(Scrollable)).position;
+    // Card 3 spans 600-800: already visible, nothing moves.
+    revealInRow(cards[3].currentContext!);
+    await tester.pumpAndSettle();
+    expect(position.pixels, 0);
+    // Card 5 spans 1000-1200: its right edge lands on the screen edge.
+    revealInRow(cards[5].currentContext!);
+    await tester.pumpAndSettle();
+    expect(position.pixels, 1200 - 800);
+    // Back to card 1 (200-400): its left edge lands on the screen edge.
+    revealInRow(cards[1].currentContext!);
+    await tester.pumpAndSettle();
+    expect(position.pixels, 200);
+  });
 }
