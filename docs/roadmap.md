@@ -49,6 +49,7 @@ Neuf défauts remontés par l'usage réel sur box, en plus du 4K/crash ci-dessus
 ## Corrigés — analyse Sentry du 24/09 (session de test sur box)
 
 - [x] **Remise à zéro d'une page par la barre d'onglets sans effet** (Sentry FLUTTER-14, 15, 16 : `scrollables_reset: 0`, accueil resté défilé). `goBranch()` ne bascule d'onglet qu'une frame plus tard : la page visée était encore `Offstage` au moment du reset. Le reset attend désormais que l'onglet soit affiché (`didUpdateWidget` d'`AppShell`). `topLeftFocusable` ignore aussi les `FocusScopeNode` : le focus tombait sur le scope du hero, et le premier appui était perdu.
+- [x] **Test DNS : premier appui perdu dans la boîte de résultats.** Aucun élément n'avait le focus à l'ouverture ; « Fermer » a désormais l'autofocus ([dns_settings_tiles.dart](../apps/mobile/lib/features/settings/dns_settings_tiles.dart)).
 
 ## Logs diagnostiques (Supabase + Sentry)
 

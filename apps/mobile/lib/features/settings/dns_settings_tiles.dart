@@ -161,7 +161,9 @@ class _DnsTestTileState extends ConsumerState<DnsTestTile> {
               ],
             ),
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).close))],
+          // Nothing else in the dialog is focusable: without autofocus the first D-pad press was
+          // spent reaching Close.
+          actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).close))],
         ),
       );
     } finally {
