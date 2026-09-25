@@ -4,7 +4,6 @@ import 'dart:io' show InternetAddress;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:sentry_flutter/sentry_flutter.dart' show SentryLevel;
 
 import '../../app/router.dart';
 import '../../app/theme.dart';
@@ -283,12 +282,7 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(l10n.reportProblemHint),
               onTap: () async {
                 unawaited(ref.read(appLoggerProvider).flush());
-                final id = await Telemetry.capture(
-                  'user_report',
-                  'Problem reported from settings',
-                  level: SentryLevel.info,
-                  fingerprint: ['user-report', '${DateTime.now().microsecondsSinceEpoch}'],
-                );
+                final id = await Telemetry.feedback('Problem reported from settings');
                 if (context.mounted && id != null) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.problemReported('$id'.substring(0, 8)))));
                 }

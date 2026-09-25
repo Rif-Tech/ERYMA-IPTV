@@ -7,7 +7,6 @@ import 'dart:io' show InternetAddress;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sentry_flutter/sentry_flutter.dart' show SentryLevel;
 
 import '../../core/log/telemetry.dart';
 import '../../core/net/dns_models.dart';
@@ -127,14 +126,13 @@ class _DnsTestTileState extends ConsumerState<DnsTestTile> {
       final target = dnsProbeTarget(host);
       final servers = ref.read(dnsServersProvider).value ?? kBuiltinDnsServers;
       final results = await probeDns(target, servers);
-      unawaited(Telemetry.capture(
+      // A log line, not an issue: the test is a user action, and failures already raise their own
+      // `dns` events from the resolvers.
+      Telemetry.breadcrumb(
         'dns',
         'DNS test run (${results.where((r) => r.ok).length}/${results.length} ok)',
-        level: SentryLevel.info,
         data: {'host': host, 'probed_host': target, 'ip_playlist': ipHost, for (final r in results) r.label: r.ok ? '${r.latency?.inMilliseconds} ms' : 'failed'},
-        fingerprint: ['dns-test'],
-        throttle: const Duration(minutes: 1),
-      ));
+      );
       if (!mounted) return;
       await showDialog<void>(
         context: context,

@@ -178,6 +178,19 @@ abstract final class Telemetry {
     );
   }
 
+  /// A user report (Sentry → User Feedback, not an issue), with the breadcrumb trail, tags and
+  /// contexts of the moment it was sent.
+  static Future<SentryId?> feedback(String message, {Map<String, Object?>? data}) async {
+    if (!enabled) return null;
+    return Sentry.captureFeedback(
+      SentryFeedback(message: scrub(message)),
+      withScope: (scope) async {
+        await scope.setTag('category', 'user_report');
+        if (data != null) await scope.setContexts('details', _scrubValue(data));
+      },
+    );
+  }
+
   static void exception(Object error, StackTrace? stack, {required String category, Map<String, Object?>? data}) {
     if (!enabled) return;
     unawaited(Sentry.captureException(error, stackTrace: stack, withScope: (scope) async {
