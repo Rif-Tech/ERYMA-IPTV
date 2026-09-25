@@ -8,7 +8,7 @@ import '../../core/api/portal_api.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../playlists/playlists_provider.dart';
-import '../splash/splash_screen.dart';
+import '../splash/session_navigation.dart';
 
 /// Avatar colours, mirroring the portal's palette.
 const profileColors = <String, Color>{

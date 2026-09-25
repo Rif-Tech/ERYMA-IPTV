@@ -12,7 +12,7 @@ import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
-import '../splash/splash_screen.dart';
+import '../splash/session_navigation.dart';
 import 'playlists_provider.dart';
 
 class ChangePlaylistScreen extends ConsumerWidget {

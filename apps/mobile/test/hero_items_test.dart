@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiptv/core/api/portal_api.dart';
 import 'package:multiptv/core/db/database.dart';
-import 'package:multiptv/features/content/content_providers.dart';
 import 'package:multiptv/features/home/featured_provider.dart';
+import 'package:multiptv/features/home/hero_items.dart';
 
 Movie _movie(String id, String name, {int? year}) =>
     Movie(id: 0, playlistId: 'p', streamId: id, name: name, nameKey: normalizeTitle(name), streamUrl: '', position: 0, year: year);

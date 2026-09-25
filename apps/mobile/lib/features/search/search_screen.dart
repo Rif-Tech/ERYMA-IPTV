@@ -10,7 +10,7 @@ import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
-import '../content/content_providers.dart';
+import 'search_provider.dart';
 import '../player/play.dart';
 import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/trace_tag.dart';

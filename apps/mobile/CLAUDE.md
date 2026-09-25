@@ -2,6 +2,36 @@
 
 Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, flux, contrats, règles de travail) est dans [../../CLAUDE.md](../../CLAUDE.md).
 
+## Où modifier quoi
+
+Point d'entrée par type de demande (chemins relatifs à `lib/`). Ouvre ces fichiers d'abord ; élargis seulement si la modification l'exige.
+
+| Demande | Fichiers |
+|---|---|
+| Carte / ligne de chaîne | `widgets/channel_tile.dart` ; ligne EPG, menu et liste Live : `features/live/live_screen.dart` |
+| Affiches films/séries, cartes 16:9, bande de progression | `widgets/content_cards.dart` (effet de focus : `widgets/focusable_card.dart`) |
+| Image réseau, fond flou | `widgets/app_image.dart` |
+| Autres widgets partagés | `widgets/` : un fichier par famille, `common.dart` les réexporte |
+| Étagère horizontale (accueil, recherche) | `widgets/shelf.dart` ; navigation verticale : `widgets/row_focus_chain.dart` |
+| Rail de catégories Live/Films/Séries | `features/content/category_browser.dart` |
+| Grille Films/Séries | `features/movies/movies_screen.dart` (Séries la réutilise via `series_screen.dart`) |
+| Fiche film / série | `features/movies/movie_detail_screen.dart` (`DetailLayout` partagé), `features/series/series_detail_screen.dart` |
+| Métadonnées d'un titre (infos Xtream, TMDB, favori) | `features/content/metadata_providers.dart` |
+| Accueil : hero | `features/home/hero_carousel.dart`, `hero_items.dart` (diapos locales), `featured_provider.dart` (« À la une » distant) |
+| Accueil : rangées | `features/home/home_screen.dart` |
+| Recherche | `features/search/search_screen.dart`, `search_provider.dart`, requêtes `search*` de `core/db/database.dart` |
+| Pagination, favoris, historique, EPG now/next | `features/content/content_providers.dart` |
+| Lancer une lecture | `features/player/play.dart` |
+| Lecteur : options mpv / décodage et repli | `features/player/mpv_tuning.dart` / `features/player/decode_policy.dart` |
+| Lecteur : overlay (boutons, barre, EPG, erreur) | `features/player/player_controls.dart` ; état et touches : `player_screen.dart` |
+| URL de flux | `core/player/playback.dart` (`StreamResolver`) |
+| Réglage | `core/settings/settings.dart` + `features/settings/settings_screen.dart` (tuiles : `settings_tiles.dart`, DNS : `dns_settings_tiles.dart`) |
+| Champ d'un modèle Xtream / du portail | `core/xtream/xtream_models.dart` / `core/api/portal_models.dart` |
+| Champ stocké en base | `core/db/database.dart` (+ `build_runner`), `core/playlist/playlist_importer.dart`, `core/m3u/m3u_parser.dart` |
+| Appel à une Edge Function | `core/api/portal_api.dart` (voir aussi les contrats partagés de la racine) |
+| Boot, session, routage d'entrée | `features/splash/splash_screen.dart`, `session_navigation.dart`, `session_gate.dart` ; session : `features/playlists/playlists_provider.dart` |
+| Routes, onglets | `app/router.dart`, `features/shell/app_shell.dart` |
+
 ## Stack et contraintes Android
 
 - Flutter / Dart, Riverpod 3 **écrit à la main** (pas de codegen), go_router 17, drift, media_kit (mpv), dio.
@@ -31,7 +61,7 @@ Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, f
 
 - **Aucun redirect go_router.** L'accès se contrôle de façon impérative, à trois endroits :
   - `SplashScreen._boot` : restaure l'URL du portail, attend l'identité et le secret, `ProfileController.restore()`, puis `db.watchPlaylists().first`. Le serveur (`device-session`, timeout 20 s) n'est attendu **que** s'il manque une playlist locale **ou** un profil actif ; sinon on passe directement à `resumeNavigation`.
-  - `resumeNavigation`/`redirectedBySession()` : sélectionne le profil ou la playlist, ou ouvre le sélecteur correspondant.
+  - `resumeNavigation`/`redirectedBySession()`/`openPlaylist` ([session_navigation.dart](lib/features/splash/session_navigation.dart)) : sélectionne le profil ou la playlist, ou ouvre le sélecteur correspondant.
   - `SessionGate` : `unpaired` → `/pairing`, `blocked` (en ligne + compte expiré) → `/no-playlist`, `maintenance`/mise à jour requise → écran bloquant.
   - Toute nouvelle route d'entrée ou nouvel état de session se câble aux **trois**.
 - `deviceSession()` s'attend **séparément** de `app-info`, jamais via `Future.wait` : une erreur groupée masquerait le 401.
@@ -51,16 +81,16 @@ Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, f
 - Schéma et requêtes vivent dans `database.dart` (exception existante, à ne pas étendre : quelques update/delete dans [playlist_importer.dart](lib/core/playlist/playlist_importer.dart)).
 - Toute donnée personnelle (favoris, historique, verrous, catégories masquées, groupes) filtre sur `profileId` **et** `playlistId`. Change de profil uniquement via `ProfileController.select` ; `''` désigne les données d'avant les profils, réclamées par `claimLegacyProfileData`.
 - Migrations : bloc `if (from < N)` qui ne touche que ce qui existe à cette étape ; teste l'upgrade depuis **chaque version livrée** (la v2 a existé, voir [docs/roadmap.md](../../docs/roadmap.md)) avec `NativeDatabase.memory` + DDL brut.
-- Import ([playlist_importer.dart](lib/core/playlist/playlist_importer.dart)) : insertions par lots de 500 ; parsing lourd dans `Isolate.run` au-delà de 256 Ko ; JSON Xtream lu via des accesseurs souples (`jStr`/`jInt`/…) ; erreurs en `ImportException`. Épisodes Xtream chargés à la demande à la première ouverture d'une série, pas à l'import.
+- Import ([playlist_importer.dart](lib/core/playlist/playlist_importer.dart)) : insertions par lots de 500 ; parsing lourd dans `Isolate.run` au-delà de 256 Ko ; JSON Xtream lu via des accesseurs souples (`jStr`/`jInt`/…, [xtream_models.dart](lib/core/xtream/xtream_models.dart)) ; erreurs en `ImportException`. Épisodes Xtream chargés à la demande à la première ouverture d'une série, pas à l'import.
 - `name_key == normalizeTitle(name)`, calculé à l'import : sert à la recherche et au matching « À la une ». Si tu modifies `normalizeTitle`, force un ré-import (`lastSyncedAt = null`).
 - Playlists `source = local` (héritées d'avant le portail) : visibles par tous les profils, jamais synchronisées. Ne casse pas ce chemin sans décision produit.
-- Synchronisation ([progress_sync.dart](lib/core/sync/progress_sync.dart)) : seulement pour les playlists `portal-*` (préfixe retiré via `serverPlaylistId()`, préfère ce helper à un `startsWith` manuel). `schedule()` est un **debounce** de 20 s, pas un throttle : si le lecteur le réarme toutes les 10 s, rien ne part avant la fermeture — voir la roadmap.
+- Synchronisation ([progress_sync.dart](lib/core/sync/progress_sync.dart)) : seulement pour les playlists `portal-*`. Le préfixe ne s'écrit que via [playlist_ids.dart](lib/core/playlist/playlist_ids.dart) (`portalPlaylistId`, `serverIdOf`, `serverPlaylistId`), jamais à la main ; les identifiants Xtream d'une playlist via `playlist.xtreamCredentials` (même fichier). Seuil « terminé » : `ProgressSync.isCompleted`, à réutiliser partout. `schedule()` est un **debounce** de 20 s, pas un throttle : si le lecteur le réarme toutes les 10 s, rien ne part avant la fermeture — voir la roadmap.
 
 ## Lecture et réseau
 
 - Ouvre le lecteur uniquement via [play.dart](lib/features/player/play.dart) (`openPlayer`/`playChannels`/`playMovie`/`playEpisodes`), sauf le fallback de rétrogradation du décodage interne à `PlayerScreen`.
 - URL construite uniquement par `StreamResolver` ([playback.dart](lib/core/player/playback.dart)), jamais stockée en base pour Xtream (les identifiants y transiteraient).
-- Options mpv réglées dans `_tunePlayer()` (player_screen.dart) ; attends la fin avant `player.open`.
+- Lecteur ([features/player](lib/features/player)) : `player_screen.dart` garde le state (cycle de vie mpv, overlay, seek, touches D-pad, progression) ; options mpv dans `tuneMpv` ([mpv_tuning.dart](lib/features/player/mpv_tuning.dart)), attendues avant `player.open` ; chemin de décodage initial, repli et classement des erreurs mpv dans [decode_policy.dart](lib/features/player/decode_policy.dart) (fonctions pures, `test/decode_policy_test.dart`) ; widgets de l'overlay dans [player_controls.dart](lib/features/player/player_controls.dart).
 - Valeurs à haute fréquence (position, buffering) : `ValueNotifier`/`ValueListenableBuilder`, jamais un `setState` sur tout l'écran.
 - DNS ([core/net](lib/core/net)) : le proxy loopback n'écoute que sur 127.0.0.1 ; les URL DoH doivent être des IP littérales (un nom d'hôte boucle sur lui-même). `activeDnsResolverProvider` observe **tout** `settingsProvider` sans `.select` : n'importe quel réglage relance le proxy sur un nouveau port pendant que mpv garde l'ancien — voir la roadmap avant d'y toucher. Le libellé `'Système'` sert de sentinelle en mode auto : ne le traduis pas sans introduire un id.
 - Natif : un seul MethodChannel `'multiptv/platform'` ([native_platform.dart](lib/core/platform/native_platform.dart)) ; réponds `result.success(false)` si l'API demandée n'existe pas.
@@ -71,8 +101,8 @@ Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, f
 
 - **Traçabilité D-pad** : nomme toute nouvelle zone focusable avec `TraceTag('nom', child: …)` et tout nœud isolé avec `TraceTag.name(node, 'nom')` ([trace_tag.dart](lib/core/log/trace_tag.dart)) ; l'index dans les listes/grilles est trouvé automatiquement. Un gestionnaire `onKeyEvent` qui décide d'un déplacement appelle `RemoteKeyTracker.note('qui: quoi')`. Sans cela, Sentry ne voit que des coordonnées (les types sont obfusqués en release).
 
-- Widgets focusables de [widgets/common.dart](lib/widgets/common.dart) (`FocusableCard`, `PosterCard`, `LandscapeCard`, `ChannelTile`, `Shelf`, `PillButton`, `AsyncView`, `EmptyState`). Un élément interactif est soit l'un d'eux, soit un bouton/`ListTile` Material thémé, soit un `InkWell` avec `onFocusChange` et un focus dessiné (modèle : `_CategoryItem`, live_screen.dart). **Jamais un `GestureDetector` seul, jamais une action accessible uniquement par `onLongPress`.**
-- Un seul autofocus **par FocusScope visible à la fois** — pas par écran : dans `BrowserScaffold` ([live_screen.dart](lib/features/live/live_screen.dart), [movies_screen.dart](lib/features/movies/movies_screen.dart)), c'est le rail de catégories qui le porte, jamais la grille.
+- Widgets focusables partagés, un fichier par famille dans [widgets/](lib/widgets) (`common.dart` les réexporte tous) : `FocusableCard` (focusable_card), `AppImage`/`BackdropArt` (app_image), `PosterCard`/`LandscapeCard`/`ProgressStrip` (content_cards), `ChannelTile` (channel_tile), `Shelf` (shelf), `PillButton` (pill_button), `LiveBadge`/`MetaBadge` (badges), `GlassPanel` (glass_panel), `Skeleton`/`EmptyState`/`AsyncView` (async_states). Un élément interactif est soit l'un d'eux, soit un bouton/`ListTile` Material thémé, soit un `InkWell` avec `onFocusChange` et un focus dessiné (modèle : `_CategoryItem`, [category_browser.dart](lib/features/content/category_browser.dart)). **Jamais un `GestureDetector` seul, jamais une action accessible uniquement par `onLongPress`.**
+- Un seul autofocus **par FocusScope visible à la fois** — pas par écran : dans `BrowserScaffold` ([category_browser.dart](lib/features/content/category_browser.dart), partagé par Live, Films et Séries), c'est le rail de catégories qui le porte, jamais la grille.
 - **Pages en rangées empilées** (accueil, recherche) : navigation verticale par `RowFocusChain` ([row_focus_chain.dart](lib/widgets/row_focus_chain.dart)) — une rangée = un `FocusScope` (qui retient sa dernière carte), rangées vides sautées, répétitions de touche gérées. Défilement vertical : `revealSection` uniquement (la section entière visible, déplacement minimal, jamais centrée, rien quand elle est déjà visible) ; ne rajoute pas de `ensureVisible(alignment: 0.5)` sur une carte.
 - Ouvrir une page depuis la barre d'onglets la remet à zéro (`go()` d'`app_shell.dart`) : route racine, catégorie « Tout », recherche vidée, défilements à 0, focus en haut à gauche, et `pageResetProvider` pour les pages qui gardent une mémoire de focus (rangées de l'accueil).
 - Deux FocusScopes reliés par `_TvFocusBridge` ([app_shell.dart](lib/features/shell/app_shell.dart)) : la barre d'onglets (`kTopBarHeight`, `_destinations`) et le contenu. Avant d'entrer dans un scope, cherche `scope.focusedChild ?? topLeftFocusable(scope)` ; n'appelle jamais `requestFocus` s'il n'y a rien à focaliser.
@@ -81,7 +111,7 @@ Ce fichier ne contient que ce qui est propre à l'app. Le transverse (mission, f
 - Jetons de design via `context.tokens` ; tout effet coûteux (flou, ombre, fondu, shimmer, animation perpétuelle) lit `performanceModeProvider` (`responsive.dart`) — il ne pilote que les effets **visuels** des widgets, pas le buffer mpv (`isLowEndDeviceProvider`) ni le cache d'images (`lowEnd` de `main()`) ni le décodage (dépend de la détection TV).
 - Passe toujours `decodeWidth` à `AppImage`.
 - Listes longues : `itemExtent` fixe, `addAutomaticKeepAlives:false`, `addRepaintBoundaries:false`, pagination par `onNearEnd`.
-- Choix d'une énumération dans les réglages : `_EnumTile` ([settings_screen.dart](lib/features/settings/settings_screen.dart)).
+- Choix d'une énumération dans les réglages : `SettingsEnumTile` ([settings_tiles.dart](lib/features/settings/settings_tiles.dart)) ; tuiles DNS dans [dns_settings_tiles.dart](lib/features/settings/dns_settings_tiles.dart).
 - Détection TV via `isTelevisionProvider` (leanback/television), **jamais** par la taille d'écran.
 
 ## l10n

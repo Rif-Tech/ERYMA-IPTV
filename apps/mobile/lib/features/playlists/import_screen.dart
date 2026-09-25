@@ -6,7 +6,7 @@ import '../../app/router.dart';
 import '../../core/db/database.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../l10n/generated/app_localizations.dart';
-import '../splash/splash_screen.dart';
+import '../splash/session_navigation.dart';
 import 'playlists_provider.dart';
 
 /// Runs the playlist import and shows progress; navigates home on success.

@@ -11,8 +11,9 @@ import '../../core/device/device_identity.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
 import '../../core/text/normalize.dart';
-import '../content/content_providers.dart';
+import '../content/metadata_providers.dart';
 import '../playlists/playlists_provider.dart';
+import 'hero_items.dart';
 
 export '../../core/text/normalize.dart' show normalizeTitle, yearFromTitle;
 
@@ -180,12 +181,6 @@ List<HeroItem> matchFeatured(List<FeaturedEntry> entries, LocalCatalog catalog, 
 // ---------------------------------------------------------------------------
 // Providers
 
-/// TMDB language for the current UI locale.
-final tmdbLangProvider = Provider<String>((ref) {
-  final code = ref.watch(settingsProvider.select((s) => s.locale?.languageCode)) ?? PlatformDispatcher.instance.locale.languageCode;
-  return code == 'fr' ? 'fr-FR' : 'en-US';
-});
-
 /// Remote entries for the selected source, served stale-while-revalidate from a local cache so
 /// the hero appears at once on launch instead of waiting for the network.
 class FeaturedEntries extends AsyncNotifier<List<FeaturedEntry>> {
@@ -256,14 +251,6 @@ final featuredHeroProvider = FutureProvider.family<List<HeroItem>, (String, Stri
     if (matched.isNotEmpty) return matched.take(10).toList();
   }
   return ref.watch(heroItemsProvider(playlistId).future);
-});
-
-/// TMDB artwork/synopsis for a local item whose panel exposes a `tmdb_id`.
-final tmdbArtProvider = FutureProvider.family<TmdbSummary?, (String, int)>((ref, key) async {
-  await ref.watch(deviceIdentityProvider.future);
-  final lang = ref.watch(tmdbLangProvider);
-  ref.keepAlive();
-  return ref.read(portalApiProvider).tmdbDetails(kind: key.$1, id: key.$2, lang: lang);
 });
 
 /// Fire-and-forget anonymous playback statistic.

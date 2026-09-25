@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../db/database.dart';
+import '../playlist/playlist_ids.dart';
 import '../settings/settings.dart';
 import '../xtream/xtream_client.dart';
 
@@ -70,9 +71,7 @@ class StreamResolver {
   final Playlist playlist;
   final AppSettings settings;
 
-  XtreamCredentials? get _creds => playlist.type == PlaylistType.xtream
-      ? XtreamCredentials(baseUrl: playlist.url, username: playlist.username ?? '', password: playlist.password ?? '')
-      : null;
+  XtreamCredentials? get _creds => playlist.type == PlaylistType.xtream ? playlist.xtreamCredentials : null;
 
   PlayableItem channel(Channel c) {
     final creds = _creds;

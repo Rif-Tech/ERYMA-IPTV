@@ -10,6 +10,7 @@ import '../../app/config.dart';
 import '../../core/api/portal_api.dart';
 import '../../core/db/database.dart';
 import '../../core/device/device_identity.dart';
+import '../../core/playlist/playlist_ids.dart';
 import '../../core/playlist/playlist_importer.dart';
 import '../../core/settings/settings.dart';
 import '../../core/xtream/xtream_client.dart';
@@ -30,7 +31,7 @@ final playlistsProvider = Provider<AsyncValue<List<Playlist>>>((ref) {
 /// Applies a profile's playlist access to the local list; no profile = everything (legacy/offline).
 List<Playlist> visibleForProfile(List<Playlist> all, ViewerProfile? profile) {
   if (profile == null) return all;
-  final allowed = profile.playlistIds.map((id) => 'portal-$id').toSet();
+  final allowed = profile.playlistIds.map(portalPlaylistId).toSet();
   return all.where((p) => p.source != PlaylistSource.portal || allowed.contains(p.id)).toList();
 }
 
@@ -179,13 +180,13 @@ class DeviceSessionNotifier extends AsyncNotifier<DeviceSession> {
 
   Future<void> _mirrorPortalPlaylists(AppDatabase db, List<PortalPlaylist> remote) async {
     final local = await db.watchPlaylists().first;
-    final remoteIds = remote.map((p) => 'portal-${p.id}').toSet();
+    final remoteIds = remote.map((p) => portalPlaylistId(p.id)).toSet();
     for (final p in local.where((p) => p.source == PlaylistSource.portal)) {
       if (!remoteIds.contains(p.id)) await db.deletePlaylist(p.id);
     }
     final localById = {for (final p in local) p.id: p};
     for (final r in remote) {
-      final id = 'portal-${r.id}';
+      final id = portalPlaylistId(r.id);
       final existing = localById[id];
 
       // A get.php URL is an Xtream account in disguise: use the API (VOD, series, EPG) instead of the raw M3U.
@@ -280,15 +281,12 @@ class ProfileController extends Notifier<void> {
 
   void _pushContext(String profileId) {
     final id = ref.read(settingsProvider).activePlaylistId;
-    final playlistId = id != null && id.startsWith('portal-') ? id.substring('portal-'.length) : null;
+    final playlistId = id == null ? null : serverIdOf(id);
     unawaited(ref.read(portalApiProvider).setContext(profileId: profileId, playlistId: playlistId).catchError((Object e) => debugPrint('setContext: $e')));
   }
 }
 
 final profileControllerProvider = NotifierProvider<ProfileController, void>(ProfileController.new);
-
-/// Server uuid of a mirrored playlist (`portal-<uuid>`), null for legacy local playlists.
-String? serverPlaylistId(Playlist p) => p.source == PlaylistSource.portal ? p.id.replaceFirst('portal-', '') : null;
 
 // ---------------------------------------------------------------------------
 

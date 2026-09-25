@@ -12,7 +12,6 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../app/responsive.dart';
 import '../../app/router.dart';
-import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/log/app_logger.dart';
 import '../../core/log/remote_key_tracker.dart';
@@ -26,9 +25,11 @@ import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
-import '../content/content_providers.dart';
 import '../playlists/playlists_provider.dart';
+import 'decode_policy.dart';
+import 'mpv_tuning.dart';
 import 'playback_telemetry.dart';
+import 'player_controls.dart';
 
 /// Skip applied per D-pad tap; repeats accelerate while the key is held.
 const _seekStep = Duration(seconds: 15);
@@ -123,8 +124,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       proxyPort: dnsProxy.value,
       proxyState: dnsProxy.hasError ? 'error: ${dnsProxy.error}' : (dnsProxy.isLoading ? 'loading' : 'ready'),
       currentProxyPort: () => mounted ? ref.read(dnsProxyProvider).value : null,
-      isBenign: _isBenignError,
-      isDecoderError: _isDecoderError,
+      isBenign: isBenignMpvError,
+      isDecoderError: isDecoderMpvError,
     );
     unawaited(WakelockPlus.enable());
     WidgetsBinding.instance.addObserver(this);
@@ -136,8 +137,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _subs.addAll([
       if (kDebugMode) _player.stream.log.listen((l) => debugPrint('mpv[${l.level}] ${l.prefix}: ${l.text}')),
       _player.stream.error.listen((e) {
-        if (_isBenignError(e)) return;
-        if (_path != DecodePath.software && _isDecoderError(e)) {
+        if (isBenignMpvError(e)) return;
+        if (_path != DecodePath.software && isDecoderMpvError(e)) {
           _fallback('decoder error: $e');
           return;
         }
@@ -258,7 +259,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   late final PlaybackTelemetry _telemetry;
   String _closeReason = 'closed';
 
-  static const _hardwareUnsupportedKey = 'hardwareCopyUnsupported';
   late final DecodePath _path;
   bool _fellBack = false;
   Timer? _watchdog;
@@ -277,35 +277,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   final _replayFocus = TraceTag.name(FocusNode(debugLabel: 'replay'), 'player-replay');
   final _forwardFocus = TraceTag.name(FocusNode(debugLabel: 'forward'), 'player-forward');
 
-  DecodePath _defaultPath() {
-    // Emulators cannot create mpv's EGL context (vo=gpu): only the direct path shows a picture.
-    if (ref.read(isEmulatorProvider)) return DecodePath.direct;
-    final prefs = ref.read(sharedPreferencesProvider);
-    return switch (ref.read(settingsProvider).videoDecoder) {
-      VideoDecoder.direct => DecodePath.direct,
-      VideoDecoder.compat => DecodePath.hardware,
-      VideoDecoder.software => DecodePath.software,
-      // TV: `direct` (zero-copy). Measured on a Mi Box S gen 2 once video renders through a
-      // SurfaceTexture (MainActivity): 1-2 dropped frames per minute in 1080p and 4K HEVC, where
-      // `hardware` (mediacodec-copy + vo=gpu) dropped 2 frames out of 3 and hit ANRs in 4K
-      // (Sentry FLUTTER-5/6). The green frames that once ruled `direct` out came from Flutter's
-      // ImageReader surface, not from the decoder. Handhelds keep `hardware`.
-      VideoDecoder.auto => _isTv
-          ? DecodePath.direct
-          : ((prefs.getBool(_hardwareUnsupportedKey) ?? false) ? DecodePath.software : DecodePath.hardware),
-    };
-  }
-
-  /// mpv reports the decoder re-init done by `vo=mediacodec_embed` as a failed seek on live
-  /// (unseekable) streams; playback is unaffected, so it must not raise the error banner.
-  static bool _isBenignError(String e) => e.contains('Cannot seek in this stream') || e.contains('force-seekable');
-
-  /// A rejected stream (unsupported profile, 10-bit, old firmware) leaves audio without picture on
-  /// the hardware paths; these messages are mpv's ways of saying so.
-  static bool _isDecoderError(String e) {
-    final s = e.toLowerCase();
-    return s.contains('could not open codec') || s.contains('hardware decod') || s.contains('video chain') || s.contains('mediacodec') || s.contains('failed to initialize');
-  }
+  DecodePath _defaultPath() => defaultDecodePath(
+        decoder: ref.read(settingsProvider).videoDecoder,
+        isEmulator: ref.read(isEmulatorProvider),
+        isTv: _isTv,
+        hardwareCopyUnsupported: ref.read(sharedPreferencesProvider).getBool(hardwareCopyUnsupportedKey) ?? false,
+      );
 
   /// Black screen without any error (decoder produces nothing): if audio is playing for a while
   /// and no video frame size was ever reported, treat it as a decoder failure.
@@ -322,13 +299,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   /// this box cannot use the failed path, so the next playback skips the detour.
   Future<void> _fallback(String reason) async {
     if (_fellBack || !mounted) return;
-    // A weak box cannot afford `hardware`'s GPU copy (see _defaultPath): software is the better
-    // second chance there, for everything short of 4K (refused below).
-    final next = switch (_path) {
-      DecodePath.direct => ref.read(isLowEndDeviceProvider) ? DecodePath.software : DecodePath.hardware,
-      DecodePath.hardware => DecodePath.software,
-      DecodePath.software => null,
-    };
+    // Software is a weak box's second chance for everything short of 4K (refused below).
+    final next = nextDecodePath(_path, lowEnd: ref.read(isLowEndDeviceProvider));
     if (next == null) return;
     // Emulators have no other working path: keep the current one and let the error show.
     if (ref.read(isEmulatorProvider)) return;
@@ -359,7 +331,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     // Only a hardware-copy failure is remembered for the whole install: `direct` failures are
     // per stream (one SD channel refused by the decoder must not disable it for every channel).
     if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto && _path == DecodePath.hardware) {
-      await ref.read(sharedPreferencesProvider).setBool(_hardwareUnsupportedKey, true);
+      await ref.read(sharedPreferencesProvider).setBool(hardwareCopyUnsupportedKey, true);
     }
     if (!mounted) return;
     _closeReason = 'fallback to ${next.name}';
@@ -370,54 +342,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     );
   }
 
-  /// mpv options media_kit hard-codes for desktop that hurt weak Android devices.
+  /// Applies [tuneMpv] to the native player; [_open] waits for [_tuned].
   void _tunePlayer() {
     final native = _player.platform;
     if (native is! NativePlayer) {
       _tuned = Future.value();
       return;
     }
-    final lowEnd = ref.read(isLowEndDeviceProvider);
-    // mpv/ffmpeg resolve hostnames themselves; route them through the loopback proxy so a custom
-    // DNS (Réglages → Réseau / DNS) also applies to playlist streams, not just Dio/API calls.
-    final dnsProxyPort = ref.read(dnsProxyProvider).value;
-    _tuned = Future.wait([
-      // media_kit sets hr-seek-framedrop=no: every frame between the keyframe and the seek target
-      // is decoded *and displayed*, so a +15 s skip replays a burst of video while audio runs
-      // ahead. Dropping those frames makes seeks land instantly and in sync.
-      native.setProperty('hr-seek-framedrop', 'yes'),
-      // Stream cache on slow eMMC/flash stalls playback; RAM (demuxer-max-bytes) is enough.
-      native.setProperty('cache-on-disk', 'no'),
-      // Never let video fall behind audio: drop frames (in the decoder too) instead of playing in
-      // slow motion when the SoC cannot keep up.
-      native.setProperty('video-sync', 'audio'),
-      native.setProperty('framedrop', 'decoder+vo'),
-      // Subtitles are opt-in from the player menu; never auto-select a track.
-      native.setProperty('sid', 'no'),
-      native.setProperty('sub-auto', 'no'),
-      // Flaky operator networks / weak Wi-Fi on TV boxes: reconnect instead of surfacing an error.
-      native.setProperty('network-timeout', '10'),
-      native.setProperty('stream-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5'),
-      if (dnsProxyPort != null) native.setProperty('http-proxy', 'http://127.0.0.1:$dnsProxyPort'),
-      // Live TS: start decoding as soon as the first packets arrive instead of probing 5 s of data.
-      if (_isLive) ...[
-        native.setProperty('demuxer-lavf-analyzeduration', '1'),
-        native.setProperty('demuxer-lavf-probesize', '500000'),
-        native.setProperty('demuxer-readahead-secs', '3'),
-      ] else
-        native.setProperty('demuxer-readahead-secs', '20'),
-      if (_path != DecodePath.direct && lowEnd) ...[
-        // Mali-400/450 class GPUs: plain bilinear scaling, no dithering/gamma passes.
-        native.setProperty('gpu-dumb-mode', 'yes'),
-        native.setProperty('vd-lavc-fast', 'yes'),
-      ],
-      if (_path == DecodePath.software) ...[
-        native.setProperty('vd-lavc-skiploopfilter', lowEnd ? 'all' : 'nonkey'),
-        native.setProperty('vd-lavc-threads', '0'),
-      ] else if (lowEnd)
-        // Hardware decoding leaves the CPU idle; extra software threads only cost RAM on 2 GB boxes.
-        native.setProperty('vd-lavc-threads', '2'),
-    ]).then((_) {}, onError: (Object e) => debugPrint('mpv tuning failed: $e'));
+    _tuned = tuneMpv(native, isLive: _isLive, path: _path, lowEnd: ref.read(isLowEndDeviceProvider), dnsProxyPort: ref.read(dnsProxyProvider).value);
   }
 
   Future<void> _saveProgress({bool flush = false}) async {
@@ -745,13 +677,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                     valueListenable: _buffering,
                     builder: (_, buffering, _) => buffering ? const Center(child: CircularProgressIndicator()) : const SizedBox.shrink(),
                   ),
-                if (_error != null) _ErrorBanner(message: _error!, onRetry: _open, onExit: () => context.pop()),
-                if (!_isLive) _SeekIndicator(pending: _pendingSeek, position: _position),
+                if (_error != null) PlayerErrorBanner(message: _error!, onRetry: _open, onExit: () => context.pop()),
+                if (!_isLive) PlayerSeekIndicator(pending: _pendingSeek, position: _position),
                 if (!_isLive)
                   ValueListenableBuilder<bool>(
                     valueListenable: _scrubVisible,
                     builder: (_, visible, child) => visible ? child! : const SizedBox.shrink(),
-                    child: _ScrubBar(position: _position, duration: _duration),
+                    child: PlayerScrubBar(position: _position, duration: _duration),
                   ),
                 AnimatedOpacity(
                   opacity: _overlay ? 1 : 0,
@@ -833,9 +765,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_isLive && item.epgChannelId != null) _EpgLine(epgChannelId: item.epgChannelId!, use24h: settings.use24hClock),
+              if (_isLive && item.epgChannelId != null) PlayerEpgLine(epgChannelId: item.epgChannelId!, use24h: settings.use24hClock),
               if (!_isLive)
-                _ProgressBar(
+                PlayerProgressBar(
                   focusNode: _progressFocus,
                   position: _position,
                   duration: _duration,
@@ -865,7 +797,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                           : const SizedBox.shrink(),
                     ),
                   ),
-                  _ControlPill(
+                  PlayerControlPill(
                     children: [
                       IconButton(
                         focusNode: _prevFocus,
@@ -909,7 +841,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                             ),
                           ),
                         if (_tracks.audio.length > 2)
-                          _TrackButton<AudioTrack>(
+                          PlayerTrackButton<AudioTrack>(
                             icon: Icons.audiotrack_rounded,
                             tooltip: l10n.audioTrack,
                             tracks: _tracks.audio.where((t) => t.id != 'auto').toList(),
@@ -921,7 +853,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                             },
                           ),
                         if (_tracks.subtitle.length > 1)
-                          _TrackButton<SubtitleTrack>(
+                          PlayerTrackButton<SubtitleTrack>(
                             icon: Icons.subtitles_rounded,
                             tooltip: l10n.subtitleTrack,
                             tracks: _tracks.subtitle.where((t) => t.id != 'auto').toList(),
@@ -1004,327 +936,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                     );
                   },
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Translucent rounded group holding the transport buttons.
-class _ControlPill extends StatelessWidget {
-  const _ControlPill({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: const Color(0x2EFFFFFF), borderRadius: BorderRadius.circular(999)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: children),
-    );
-  }
-}
-
-/// Thin scrubber (thickens while dragging or focused) driven by notifiers: repaints ~10×/s
-/// without rebuilding the whole player. Focusable so the D-pad can land on it; left/right are
-/// handled by the screen (accelerating seek) while it has focus.
-class _ProgressBar extends StatefulWidget {
-  const _ProgressBar({
-    required this.focusNode,
-    required this.position,
-    required this.duration,
-    required this.onScrub,
-    required this.onScrubEnd,
-    this.onFocus,
-  });
-  final FocusNode focusNode;
-  final ValueNotifier<Duration> position;
-  final ValueNotifier<Duration> duration;
-  final ValueChanged<Duration> onScrub;
-  final ValueChanged<Duration> onScrubEnd;
-  final VoidCallback? onFocus;
-
-  @override
-  State<_ProgressBar> createState() => _ProgressBarState();
-}
-
-class _ProgressBarState extends State<_ProgressBar> {
-  bool _dragging = false;
-  bool _focused = false;
-
-  Duration _at(double dx, double width) {
-    final total = widget.duration.value.inMilliseconds;
-    if (total <= 0) return Duration.zero;
-    return Duration(milliseconds: ((dx / width).clamp(0.0, 1.0) * total).round());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      focusNode: widget.focusNode,
-      onFocusChange: (f) {
-        setState(() => _focused = f);
-        if (f) widget.onFocus?.call();
-      },
-      child: LayoutBuilder(
-        builder: (context, c) => GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragStart: (d) => setState(() => _dragging = true),
-          onHorizontalDragUpdate: (d) => widget.onScrub(_at(d.localPosition.dx, c.maxWidth)),
-          onHorizontalDragEnd: (_) {
-            setState(() => _dragging = false);
-            widget.onScrubEnd(widget.position.value);
-          },
-          onTapUp: (d) => widget.onScrubEnd(_at(d.localPosition.dx, c.maxWidth)),
-          child: SizedBox(
-            height: 28,
-            width: double.infinity,
-            child: ValueListenableBuilder<Duration>(
-              valueListenable: widget.duration,
-              builder: (context, dur, _) => ValueListenableBuilder<Duration>(
-                valueListenable: widget.position,
-                builder: (context, pos, _) {
-                  final total = dur.inMilliseconds;
-                  final value = total > 0 ? (pos.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
-                  return CustomPaint(painter: _BarPainter(value: value, thick: _dragging || _focused, focused: _focused));
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BarPainter extends CustomPainter {
-  const _BarPainter({required this.value, required this.thick, this.focused = false});
-  final double value;
-  final bool thick;
-  final bool focused;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final h = thick ? 8.0 : 4.0;
-    final y = size.height / 2;
-    final track = RRect.fromRectAndRadius(Rect.fromLTWH(0, y - h / 2, size.width, h), Radius.circular(h / 2));
-    canvas.drawRRect(track, Paint()..color = const Color(0x4DFFFFFF));
-    final w = size.width * value;
-    if (w > 0) {
-      canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(0, y - h / 2, w, h), Radius.circular(h / 2)), Paint()..color = Colors.white);
-    }
-    if (focused) {
-      // Halo + accent ring: the D-pad is on the bar, left/right will scrub.
-      canvas.drawCircle(Offset(w, y), 16, Paint()..color = const Color(0x4D0A84FF));
-      canvas.drawCircle(Offset(w, y), 11, Paint()..color = const Color(0xFF0A84FF));
-    }
-    canvas.drawCircle(Offset(w, y), thick ? 9 : 6, Paint()..color = Colors.white);
-  }
-
-  @override
-  bool shouldRepaint(_BarPainter old) => old.value != value || old.thick != thick || old.focused != focused;
-}
-
-/// Display-only progress bar shown while a D-pad seek key is held: no focus/drag handling of its
-/// own (that stays in [_PlayerScreenState._onKey]), just a live cursor so a long-press fast seek is
-/// visible without popping the full transport controls.
-class _ScrubBar extends StatelessWidget {
-  const _ScrubBar({required this.position, required this.duration});
-  final ValueNotifier<Duration> position;
-  final ValueNotifier<Duration> duration;
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    return IgnorePointer(
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(48, 0, 48, 32 + bottom),
-          child: SizedBox(
-            height: 16,
-            child: ValueListenableBuilder<Duration>(
-              valueListenable: duration,
-              builder: (context, dur, _) => ValueListenableBuilder<Duration>(
-                valueListenable: position,
-                builder: (context, pos, _) {
-                  final total = dur.inMilliseconds;
-                  final value = total > 0 ? (pos.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
-                  return CustomPaint(painter: _BarPainter(value: value, thick: true));
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Centered "+45 s → 01:12:30" feedback while taps accumulate.
-class _SeekIndicator extends StatelessWidget {
-  const _SeekIndicator({required this.pending, required this.position});
-  final ValueNotifier<Duration?> pending;
-  final ValueNotifier<Duration> position;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<Duration?>(
-      valueListenable: pending,
-      builder: (context, p, _) {
-        if (p == null || p == Duration.zero) return const SizedBox.shrink();
-        final secs = p.inSeconds;
-        return IgnorePointer(
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 14),
-              decoration: BoxDecoration(color: const Color(0xB3000000), borderRadius: BorderRadius.circular(999)),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(secs < 0 ? Icons.fast_rewind_rounded : Icons.fast_forward_rounded, color: Colors.white, size: 32),
-                  const SizedBox(width: 12),
-                  Text(
-                    '${secs > 0 ? '+' : '−'}${secs.abs()} s  ·  ${formatDuration(position.value)}',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _EpgLine extends ConsumerWidget {
-  const _EpgLine({required this.epgChannelId, required this.use24h});
-  final String epgChannelId;
-  final bool use24h;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context);
-    final playlist = ref.watch(activePlaylistProvider);
-    if (playlist == null) return const SizedBox.shrink();
-    final programs = ref.watch(nowNextProvider(NowNextQuery(playlist.id, epgChannelId))).value ?? const [];
-    if (programs.isEmpty) return const SizedBox.shrink();
-    final now = programs.first;
-    final next = programs.length > 1 ? programs[1] : null;
-    final total = now.end.difference(now.start).inSeconds;
-    final elapsed = DateTime.now().difference(now.start).inSeconds;
-    final text = Theme.of(context).textTheme;
-    final t = context.tokens;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text(now.title, style: text.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              Text(
-                '${formatTime(context, now.start, use24h: use24h)} – ${formatTime(context, now.end, use24h: use24h)}',
-                style: text.labelMedium?.copyWith(color: t.textMuted),
-              ),
-            ],
-          ),
-          if (total > 0)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: ClipRRect(borderRadius: BorderRadius.circular(2), child: ProgressStrip((elapsed / total).clamp(0, 1), height: 4)),
-            ),
-          if (next != null)
-            Text(
-              '${l10n.nextLabel}  ${formatTime(context, next.start, use24h: use24h)}  ${next.title}',
-              style: text.bodySmall?.copyWith(color: t.textMuted),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TrackButton<T> extends StatelessWidget {
-  const _TrackButton({
-    required this.icon,
-    required this.tooltip,
-    required this.tracks,
-    required this.current,
-    required this.label,
-    required this.onSelected,
-  });
-  final IconData icon;
-  final String tooltip;
-  final List<T> tracks;
-  final T current;
-  final String Function(T) label;
-  final ValueChanged<T> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<T>(
-      tooltip: tooltip,
-      icon: Icon(icon),
-      onSelected: onSelected,
-      itemBuilder: (_) => [
-        for (final t in tracks)
-          PopupMenuItem(
-            value: t,
-            child: Row(
-              children: [
-                Icon(t == current ? Icons.check_rounded : null, size: 18),
-                const SizedBox(width: 8),
-                Text(label(t)),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message, required this.onRetry, required this.onExit});
-  final String message;
-  final VoidCallback onRetry;
-  final VoidCallback onExit;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final text = Theme.of(context).textTheme;
-    final t = context.tokens;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: GlassPanel(
-          strong: true,
-          radius: 20,
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error, size: 44),
-              const SizedBox(height: 12),
-              Text(l10n.playbackError, style: text.titleLarge),
-              const SizedBox(height: 6),
-              Text(l10n.playbackErrorDescription, style: text.bodyMedium?.copyWith(color: t.textMuted), textAlign: TextAlign.center),
-              const SizedBox(height: 6),
-              Text(message, style: text.bodySmall?.copyWith(color: t.textFaint), textAlign: TextAlign.center, maxLines: 3),
-              const SizedBox(height: 20),
-              Wrap(
-                spacing: 10,
-                children: [
-                  PillButton(primary: true, autofocus: true, icon: Icons.refresh_rounded, label: l10n.retry, onPressed: onRetry),
-                  PillButton(label: l10n.exit, onPressed: onExit),
-                ],
               ),
             ],
           ),

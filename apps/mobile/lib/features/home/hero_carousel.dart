@@ -17,27 +17,13 @@ import '../../core/log/app_logger.dart';
 import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/trace_tag.dart';
 import '../../core/settings/settings.dart';
-import '../../core/xtream/xtream_client.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
 import '../content/content_providers.dart';
-import '../movies/movie_detail_screen.dart';
+import '../content/metadata_providers.dart';
 import '../player/play.dart';
-import '../playlists/playlists_provider.dart';
-import 'featured_provider.dart';
-
-/// Series metadata (backdrop, genre, plot) fetched lazily from the Xtream panel.
-final seriesInfoProvider = FutureProvider.family<XtreamSeriesInfo?, String>((ref, id) async {
-  final p = ref.watch(activePlaylistProvider);
-  if (p == null || p.type != PlaylistType.xtream) return null;
-  final client = XtreamClient(XtreamCredentials(baseUrl: p.url, username: p.username ?? '', password: p.password ?? ''));
-  try {
-    return await client.seriesInfo(id);
-  } catch (_) {
-    return null;
-  }
-});
+import 'hero_items.dart';
 
 /// Full-bleed featured carousel: blurred/backdrop art, title, meta line and pill actions.
 class HeroCarousel extends ConsumerStatefulWidget {

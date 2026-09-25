@@ -9,7 +9,7 @@ import '../../app/theme.dart';
 import '../../core/db/database.dart' show ContentKind;
 import '../../l10n/generated/app_localizations.dart';
 import '../content/content_providers.dart' show SpecialCategory;
-import '../live/live_screen.dart' show selectedCategoryProvider;
+import '../content/category_browser.dart' show selectedCategoryProvider;
 import '../search/search_screen.dart' show resetSearch;
 import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/telemetry.dart';

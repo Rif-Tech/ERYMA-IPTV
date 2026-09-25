@@ -20,6 +20,7 @@ import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
 import '../shell/app_shell.dart' show pageResetProvider;
 import 'featured_provider.dart';
+import 'hero_items.dart';
 import 'hero_carousel.dart';
 
 FocusScopeNode _scope(Ref ref, String label) {

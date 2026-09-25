@@ -3,11 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
-import '../../core/xtream/xtream_client.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
-import '../home/featured_provider.dart' show tmdbArtProvider;
+import '../content/metadata_providers.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
 
@@ -15,18 +14,6 @@ final _movieProvider = FutureProvider.family<Movie?, String>((ref, id) {
   final p = ref.watch(activePlaylistProvider);
   if (p == null) return Future.value(null);
   return ref.watch(databaseProvider).getMovie(p.id, id);
-});
-
-/// Extended metadata, fetched from the Xtream panel on demand.
-final movieInfoProvider = FutureProvider.family<XtreamVodInfo?, String>((ref, id) async {
-  final p = ref.watch(activePlaylistProvider);
-  if (p == null || p.type != PlaylistType.xtream) return null;
-  final client = XtreamClient(XtreamCredentials(baseUrl: p.url, username: p.username ?? '', password: p.password ?? ''));
-  try {
-    return await client.vodInfo(id);
-  } catch (_) {
-    return null;
-  }
 });
 
 final _historyProvider = FutureProvider.family<HistoryData?, (ContentKind, String)>((ref, key) {
@@ -54,7 +41,7 @@ class MovieDetailScreen extends ConsumerWidget {
           final tmdb = tmdbId == null ? null : ref.watch(tmdbArtProvider(('movie', tmdbId))).value;
           final history = ref.watch(_historyProvider((ContentKind.vod, streamId))).value;
           final playlist = ref.watch(activePlaylistProvider)!;
-          final isFav = ref.watch(_favProvider((playlist.id, ContentKind.vod, streamId))).value ?? false;
+          final isFav = ref.watch(isFavoriteProvider((playlist.id, ContentKind.vod, streamId))).value ?? false;
 
           return DetailLayout(
             poster: m.poster,
@@ -102,10 +89,6 @@ class MovieDetailScreen extends ConsumerWidget {
     );
   }
 }
-
-final _favProvider = StreamProvider.family<bool, (String, ContentKind, String)>((ref, key) {
-  return ref.watch(databaseProvider).watchIsFavorite(key.$1, key.$2, key.$3);
-});
 
 /// Cinematic detail layout: full-width backdrop fading into black, then title, badges, pills and plot.
 class DetailLayout extends StatelessWidget {

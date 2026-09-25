@@ -4,11 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/responsive.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
 import '../content/content_providers.dart';
-import '../home/hero_carousel.dart' show seriesInfoProvider;
+import '../content/metadata_providers.dart';
 import '../movies/movie_detail_screen.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
@@ -55,7 +56,7 @@ class SeriesDetailScreen extends ConsumerWidget {
         builder: (s) {
           if (s == null || playlist == null) return EmptyState(icon: Icons.video_library, message: l10n.noSeries);
           final info = ref.watch(seriesInfoProvider(seriesId)).value;
-          final isFav = ref.watch(_favProvider((playlist.id, ContentKind.series, seriesId))).value ?? false;
+          final isFav = ref.watch(isFavoriteProvider((playlist.id, ContentKind.series, seriesId))).value ?? false;
           final eps = episodes.value ?? const <Episode>[];
           final seasons = eps.map((e) => e.season).toSet().toList()..sort();
           final selectedSeason = ref.watch(_seasonProvider) ?? (seasons.isNotEmpty ? seasons.first : null);
@@ -65,7 +66,7 @@ class SeriesDetailScreen extends ConsumerWidget {
           // Resume: the most recently watched, unfinished episode; else the first one.
           HistoryData? last;
           for (final h in history) {
-            if (h.durationMs > 0 && h.positionMs >= h.durationMs * 0.95) continue;
+            if (ProgressSync.isCompleted(h.positionMs, h.durationMs)) continue;
             if (last == null || h.watchedAt.isAfter(last.watchedAt)) last = h;
           }
           final resumeIndex = last == null ? -1 : eps.indexWhere((e) => e.episodeId == last!.itemId);
@@ -162,10 +163,6 @@ class SeriesDetailScreen extends ConsumerWidget {
     );
   }
 }
-
-final _favProvider = StreamProvider.family<bool, (String, ContentKind, String)>((ref, key) {
-  return ref.watch(databaseProvider).watchIsFavorite(key.$1, key.$2, key.$3);
-});
 
 /// Horizontal 16:9 episode cards (tablet/TV).
 class _EpisodeShelf extends StatelessWidget {

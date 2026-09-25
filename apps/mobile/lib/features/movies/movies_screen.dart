@@ -8,8 +8,8 @@ import '../../core/db/database.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
+import '../content/category_browser.dart';
 import '../content/content_providers.dart';
-import '../live/live_screen.dart';
 import '../player/play.dart';
 import '../playlists/playlists_provider.dart';
 

@@ -10,6 +10,7 @@ import '../epg/xmltv_parser.dart';
 import '../m3u/m3u_parser.dart';
 import '../text/normalize.dart';
 import '../xtream/xtream_client.dart';
+import 'playlist_ids.dart';
 
 enum ImportStage { connecting, live, movies, series, epg, done }
 
@@ -95,7 +96,7 @@ class PlaylistImporter {
   // ---- Xtream -----------------------------------------------------------
 
   Future<void> _importXtream(Playlist p, void Function(ImportProgress) report) async {
-    final creds = XtreamCredentials(baseUrl: p.url, username: p.username ?? '', password: p.password ?? '');
+    final creds = p.xtreamCredentials;
     final client = XtreamClient(creds, dio: _dio);
     final XtreamAccount account;
     try {
@@ -206,7 +207,7 @@ class PlaylistImporter {
   /// Fetches episodes for one series on demand (Xtream only) and caches them.
   Future<List<Episode>> loadEpisodes(Playlist p, String seriesId) async {
     if (p.type != PlaylistType.xtream) return db.getEpisodes(p.id, seriesId);
-    final creds = XtreamCredentials(baseUrl: p.url, username: p.username ?? '', password: p.password ?? '');
+    final creds = p.xtreamCredentials;
     final client = XtreamClient(creds, dio: _dio);
     final XtreamSeriesInfo info;
     try {

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/portal_api.dart';
 import '../db/database.dart';
 import '../device/device_identity.dart';
+import '../playlist/playlist_ids.dart';
 import '../settings/settings.dart';
 
 /// Two-way sync between the local `history` table and the server `watch_progress` table.
@@ -40,9 +41,10 @@ class ProgressSync {
 
   (String profileId, String playlistId)? _scope(String localPlaylistId) {
     final profileId = ref.read(settingsProvider).activeProfileId;
-    if (profileId == null || !localPlaylistId.startsWith('portal-')) return null;
+    final serverId = serverIdOf(localPlaylistId);
+    if (profileId == null || serverId == null) return null;
     if (ref.read(installSecretProvider).value == null) return null;
-    return (profileId, localPlaylistId.substring('portal-'.length));
+    return (profileId, serverId);
   }
 
   Future<void> push(String localPlaylistId) async {

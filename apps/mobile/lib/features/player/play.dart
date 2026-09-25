@@ -8,11 +8,12 @@ import '../../core/db/database.dart';
 import '../../core/log/app_logger.dart';
 import '../../core/player/playback.dart';
 import '../../core/settings/settings.dart';
+import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/pin_dialog.dart';
 import '../content/content_providers.dart';
+import '../content/metadata_providers.dart';
 import '../home/featured_provider.dart';
-import '../movies/movie_detail_screen.dart' show movieInfoProvider;
 import '../playlists/playlists_provider.dart';
 
 /// Resolver bound to the active playlist and current settings.
@@ -75,7 +76,7 @@ Future<void> playMovie(BuildContext context, WidgetRef ref, Movie movie, {bool r
     int? position;
     if (resume) {
       final h = await ref.read(databaseProvider).getHistory(resolver.playlist.id, ContentKind.vod, movie.streamId);
-      if (h != null && h.positionMs > 0 && (h.durationMs == 0 || h.positionMs < h.durationMs * 0.95)) {
+      if (h != null && h.positionMs > 0 && !ProgressSync.isCompleted(h.positionMs, h.durationMs)) {
         position = h.positionMs;
       }
     }
@@ -104,7 +105,7 @@ Future<void> playEpisodes(
     int? position;
     if (resume) {
       final h = await ref.read(databaseProvider).getHistory(resolver.playlist.id, ContentKind.series, episodes[index].episodeId);
-      if (h != null && h.positionMs > 0 && (h.durationMs == 0 || h.positionMs < h.durationMs * 0.95)) {
+      if (h != null && h.positionMs > 0 && !ProgressSync.isCompleted(h.positionMs, h.durationMs)) {
         position = h.positionMs;
       }
     }
