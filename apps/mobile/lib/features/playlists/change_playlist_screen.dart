@@ -35,7 +35,13 @@ class ChangePlaylistScreen extends ConsumerWidget {
     return PopScope(
       canPop: canPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && activeId != null) context.go(Routes.home);
+        if (didPop) return;
+        // A vetoed pop also fires when SessionGate replaces the stack from elsewhere (e.g.
+        // deviceSessionProvider resolving to unpaired/blocked while this screen is the root,
+        // right after boot) — that redirect must win, not be overridden by the fallback below
+        // (Sentry/user reports: landed on Home's "À la une" instead of /pairing or /no-playlist).
+        if (redirectedBySession(context, ref)) return;
+        if (activeId != null) context.go(Routes.home);
       },
       child: Scaffold(
         appBar: AppBar(
