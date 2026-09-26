@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,9 +8,100 @@ import '../../widgets/common.dart';
 import '../../widgets/format.dart';
 import '../content/content_providers.dart';
 import '../playlists/playlists_provider.dart';
+import 'playback_measure.dart';
 
 // Presentational pieces of the player overlay. State, timers and key handling stay in
 // player_screen.dart; these widgets only render what they are given.
+
+/// Live numbers of a measurement ([PlaybackMeasure]), top-right, shown whether the controls are
+/// or not. Technical values stay as mpv reports them (bt.709, mediacodec…).
+class PlayerMeasurePanel extends StatelessWidget {
+  const PlayerMeasurePanel({super.key, required this.snapshot});
+  final ValueListenable<MeasureSnapshot?> snapshot;
+
+  static String _n(double? v, [int digits = 2]) => v == null ? '?' : v.toStringAsFixed(digits);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final text = Theme.of(context).textTheme;
+    return ValueListenableBuilder<MeasureSnapshot?>(
+      valueListenable: snapshot,
+      builder: (context, s, _) {
+        if (s == null) return const SizedBox.shrink();
+        final size = s.height == null ? '?' : '${s.width}×${s.height}${s.interlaced == true ? 'i' : 'p'}';
+        final rows = [
+          (l10n.measureVideo, '${s.codec ?? '?'} $size'),
+          (l10n.measureColors, '${s.primaries ?? '?'} · ${s.colorMatrix ?? '?'} · ${s.gamma ?? '?'}'),
+          (l10n.measureOutput, '${s.output} · ${s.vo ?? '?'} · ${s.hwdec ?? '?'}'),
+          (l10n.measureDisplay, '${_n(s.displayHz)} Hz · ${s.cadence ?? '?'}'),
+          // Native output: the box shows the frames, Flutter cannot count them.
+          (l10n.measureFrames, '${_n(s.contentFps)} · ${_n(s.decodedFps, 1)} · ${s.shownFps ?? '—'}'),
+          (l10n.measureDrops, '${s.dropsVo} · ${s.dropsDecoder} · ${s.delayed}'),
+          (l10n.measureSync, '${_n(s.avsyncMs, 0)} ms'),
+          (l10n.measureBuffer, '${_n(s.cacheSeconds, 1)} s · ${s.videoKbps == null ? '?' : (s.videoKbps! / 1000).toStringAsFixed(1)} Mb/s'),
+        ];
+        return Align(
+          alignment: Alignment.topRight,
+          child: Container(
+            margin: EdgeInsets.fromLTRB(16, MediaQuery.paddingOf(context).top + 72, 24, 16),
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(maxWidth: 420),
+            decoration: BoxDecoration(color: const Color(0xCC000000), borderRadius: BorderRadius.circular(12)),
+            child: DefaultTextStyle(
+              style: text.labelSmall!.copyWith(color: Colors.white, height: 1.4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l10n.measureRunning(s.seconds), style: text.labelMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  for (final (label, value) in rows)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 190, child: Text(label, style: const TextStyle(color: Color(0xB3FFFFFF)))),
+                        Expanded(child: Text(value)),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Subtitles for the native video output, where media_kit's own view (part of its texture
+/// widget) is not used: the lines mpv decodes ([Player.stream.subtitle]) in the user's style.
+class PlayerSubtitles extends StatelessWidget {
+  const PlayerSubtitles({super.key, required this.lines, required this.style, required this.padding});
+  final Stream<List<String>> lines;
+  final TextStyle style;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: StreamBuilder<List<String>>(
+        stream: lines,
+        builder: (context, snapshot) {
+          final text = (snapshot.data ?? const []).where((l) => l.trim().isNotEmpty).join('\n');
+          if (text.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: padding,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Text(text, textAlign: TextAlign.center, style: style),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
 
 /// Translucent rounded group holding the transport buttons.
 class PlayerControlPill extends StatelessWidget {

@@ -19,6 +19,14 @@ enum VideoFit { contain, cover, fill }
 /// copy; `software` decodes on the CPU. `auto` tries them in that order and remembers failures.
 enum VideoDecoder { auto, direct, compat, software }
 
+/// Where the picture is drawn on Android. `flutter` draws it inside Flutter's own surface (a GPU
+/// texture composited with the UI); `native` gives the decoder a real SurfaceView, like the
+/// platform players: the box's video path then handles colours (BT.2020, HDR), deinterlacing and
+/// frame pacing, which the texture cannot. `auto`: native on TV (measured on a Mi TV box: the
+/// texture never showed a fifth of 4K 50 fps frames and washed out BT.2020 films), built-in
+/// elsewhere. See `usesNativeOutput`.
+enum VideoOutput { auto, flutter, native }
+
 /// Lighter visuals (no blur/shimmer, shorter fades, smaller caches) for weak hardware.
 enum PerformanceMode { auto, on, off }
 
@@ -41,6 +49,8 @@ class AppSettings {
     this.sortOrder = SortOrder.defaultOrder,
     this.videoFit = VideoFit.contain,
     this.videoDecoder = VideoDecoder.auto,
+    this.videoOutput = VideoOutput.auto,
+    this.matchFrameRate = false,
     this.performanceMode = PerformanceMode.auto,
     this.subtitleScale = 1.0,
     this.subtitleColor = 0xFFFFFFFF,
@@ -63,6 +73,12 @@ class AppSettings {
   final SortOrder sortOrder;
   final VideoFit videoFit;
   final VideoDecoder videoDecoder;
+  final VideoOutput videoOutput;
+
+  /// Switch the display to a refresh rate the content's frame rate divides evenly while playing
+  /// (25/50 fps → 50 Hz, 23.976 → 23.976 Hz): no judder, at the cost of a short black screen
+  /// whenever the TV changes mode.
+  final bool matchFrameRate;
   final PerformanceMode performanceMode;
   final double subtitleScale;
   final int subtitleColor;
@@ -95,6 +111,8 @@ class AppSettings {
     SortOrder? sortOrder,
     VideoFit? videoFit,
     VideoDecoder? videoDecoder,
+    VideoOutput? videoOutput,
+    bool? matchFrameRate,
     PerformanceMode? performanceMode,
     double? subtitleScale,
     int? subtitleColor,
@@ -122,6 +140,8 @@ class AppSettings {
         sortOrder: sortOrder ?? this.sortOrder,
         videoFit: videoFit ?? this.videoFit,
         videoDecoder: videoDecoder ?? this.videoDecoder,
+        videoOutput: videoOutput ?? this.videoOutput,
+        matchFrameRate: matchFrameRate ?? this.matchFrameRate,
         performanceMode: performanceMode ?? this.performanceMode,
         subtitleScale: subtitleScale ?? this.subtitleScale,
         subtitleColor: subtitleColor ?? this.subtitleColor,
@@ -163,6 +183,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       sortOrder: enumOf(SortOrder.values, 'sortOrder', SortOrder.defaultOrder),
       videoFit: enumOf(VideoFit.values, 'videoFit', VideoFit.contain),
       videoDecoder: enumOf(VideoDecoder.values, 'videoDecoder', VideoDecoder.auto),
+      videoOutput: enumOf(VideoOutput.values, 'videoOutput', VideoOutput.auto),
+      matchFrameRate: _prefs.getBool('matchFrameRate') ?? false,
       performanceMode: enumOf(PerformanceMode.values, 'performanceMode', PerformanceMode.auto),
       subtitleScale: _prefs.getDouble('subtitleScale') ?? 1.0,
       subtitleColor: _prefs.getInt('subtitleColor') ?? 0xFFFFFFFF,
@@ -191,6 +213,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setSortOrder(SortOrder s) => update(state.copyWith(sortOrder: s));
   Future<void> setVideoFit(VideoFit f) => update(state.copyWith(videoFit: f));
   Future<void> setVideoDecoder(VideoDecoder d) => update(state.copyWith(videoDecoder: d));
+  Future<void> setVideoOutput(VideoOutput o) => update(state.copyWith(videoOutput: o));
+  Future<void> setMatchFrameRate(bool b) => update(state.copyWith(matchFrameRate: b));
   Future<void> setPerformanceMode(PerformanceMode m) => update(state.copyWith(performanceMode: m));
   Future<void> setSubtitleScale(double s) => update(state.copyWith(subtitleScale: s));
   Future<void> setSubtitleColor(int c) => update(state.copyWith(subtitleColor: c));
@@ -232,6 +256,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await put('sortOrder', s.sortOrder.name);
     await put('videoFit', s.videoFit.name);
     await put('videoDecoder', s.videoDecoder.name);
+    await put('videoOutput', s.videoOutput.name);
+    await put('matchFrameRate', s.matchFrameRate);
     await put('performanceMode', s.performanceMode.name);
     await put('subtitleScale', s.subtitleScale);
     await put('subtitleColor', s.subtitleColor);

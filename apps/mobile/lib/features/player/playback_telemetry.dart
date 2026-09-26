@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:media_kit/media_kit.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -22,6 +23,7 @@ class PlaybackTelemetry {
     required this.currentProxyPort,
     required this.isBenign,
     required this.isDecoderError,
+    required this.isTransient,
   }) {
     if (!Telemetry.enabled) return;
     _subs.addAll([
@@ -42,6 +44,7 @@ class PlaybackTelemetry {
   final int? Function() currentProxyPort;
   final bool Function(String) isBenign;
   final bool Function(String) isDecoderError;
+  final bool Function(String) isTransient;
 
   final _subs = <StreamSubscription>[];
   Timer? _sampler;
@@ -60,11 +63,14 @@ class PlaybackTelemetry {
   int _proxyRequestsAtOpen = 0;
   String? _lastLog;
   Map<String, String> _stats = const {};
+  // The decoder reported an error on this item: a software decode is then the player's known
+  // answer (mpv's own switch, or the fallback), not something to report again.
+  bool _decoderErrorSeen = false;
 
   bool get _active => Telemetry.enabled && _item != null;
 
   /// A new item starts (first open, zap, next episode, retry). Summarises the previous one first.
-  void opened(PlayableItem item, DecodePath path, {required int index, required int total, int? startMs}) {
+  void opened(PlayableItem item, DecodePath path, {required int index, required int total, int? startMs, String output = 'flutter'}) {
     if (!Telemetry.enabled) return;
     if (_item != null) _summarise('switched');
     _item = item;
@@ -76,6 +82,7 @@ class PlaybackTelemetry {
     _stall = null;
     _seekBuffers = 0;
     _stats = const {};
+    _decoderErrorSeen = false;
     _proxyRequestsAtOpen = LocalDnsProxy.requests;
     final container = Telemetry.extensionOf(item.url);
     final uri = Uri.tryParse(item.url);
@@ -83,10 +90,11 @@ class PlaybackTelemetry {
       'content_kind': item.kind.name,
       'container': container ?? 'none',
       'decode_path': path.name,
+      'video_output': output,
       'stream_scheme': uri?.scheme,
       'stream_host': Telemetry.hostOf(item.url),
       // Cleared until the new stream reports its own format.
-      'video_codec': null, 'resolution': null, 'hdr': null, 'bit_depth': null, 'hwdec': null,
+      'video_codec': null, 'resolution': null, 'hdr': null, 'bit_depth': null, 'hwdec': null, 'frame_cadence': null,
     });
     Telemetry.context('playback', {
       'kind': item.kind.name,
@@ -97,6 +105,7 @@ class PlaybackTelemetry {
       'scheme': uri?.scheme,
       'host': Telemetry.hostOf(item.url),
       'decode_path': path.name,
+      'video_output': output,
       'index': index,
       'playlist_size': total,
       'start_ms': startMs,
@@ -192,8 +201,14 @@ class PlaybackTelemetry {
   void _onError(String error) {
     if (!_active) return;
     final benign = isBenign(error);
-    Telemetry.breadcrumb('player', 'mpv error: $error', level: benign ? SentryLevel.debug : SentryLevel.error);
-    if (benign) return;
+    final decoder = isDecoderError(error);
+    if (decoder) _decoderErrorSeen = true;
+    // The player rules on these and reports its verdict: a decoder error on a hardware path (kept
+    // or fallen back from) and a bad packet or reconnect (reported only if nothing plays). Sending
+    // them here too reported every fallback twice (FLUTTER-1Q next to FLUTTER-E).
+    final handled = (decoder && _path != DecodePath.software) || isTransient(error);
+    Telemetry.breadcrumb('player', 'mpv error: $error', level: benign ? SentryLevel.debug : (handled ? SentryLevel.warning : SentryLevel.error));
+    if (benign || handled) return;
     unawaited(Telemetry.capture(
       'player',
       'Playback error: ${Telemetry.scrub(error)}',
@@ -286,6 +301,9 @@ class PlaybackTelemetry {
                 : height > 0
                     ? 'SD'
                     : 'unknown';
+    final fps = double.tryParse(p['container-fps'] ?? '') ?? double.tryParse(p['estimated-vf-fps'] ?? '');
+    final displayHz = PlatformDispatcher.instance.displays.firstOrNull?.refreshRate;
+    final cadence = frameCadence(fps, displayHz);
     Telemetry.tags({
       'video_codec': p['video-format'] ?? 'none',
       'codec_profile': p['current-tracks/video/codec-profile'],
@@ -294,21 +312,25 @@ class PlaybackTelemetry {
       'bit_depth': bitDepth,
       'hwdec': p['hwdec-current'] ?? 'no',
       'audio_codec': p['audio-codec-name'],
+      'frame_cadence': cadence,
     });
     Telemetry.context('media', {
       ...p,
       'resolution': resolution,
       'hdr': hdr,
       'bit_depth': bitDepth,
+      'display_hz': displayHz?.toStringAsFixed(2),
+      'frame_cadence': cadence,
       'first_frame_ms': _firstFrameMs,
       'tracks_video': _player.state.tracks.video.length,
       'tracks_audio': _player.state.tracks.audio.length,
       'tracks_subtitle': _player.state.tracks.subtitle.length,
     });
-    Telemetry.breadcrumb('player', 'media: ${p['video-format'] ?? '?'} ${p['current-tracks/video/codec-profile'] ?? ''} ${width}x$height $hdr ${bitDepth ?? '?'}-bit, hwdec=${p['hwdec-current'] ?? 'no'}, vo=${p['current-vo'] ?? '?'}');
+    Telemetry.breadcrumb('player', 'media: ${p['video-format'] ?? '?'} ${p['current-tracks/video/codec-profile'] ?? ''} ${width}x$height $hdr ${bitDepth ?? '?'}-bit, ${fps?.toStringAsFixed(2) ?? '?'} fps on ${displayHz?.toStringAsFixed(2) ?? '?'} Hz ($cadence), hwdec=${p['hwdec-current'] ?? 'no'}, vo=${p['current-vo'] ?? '?'}');
     // Asked for a hardware path but mpv silently decodes in software: the usual cause of 4K/HEVC
-    // stutter on boxes whose MediaCodec rejects the profile.
-    if (_path != DecodePath.software && (p['hwdec-current'] ?? 'no') == 'no' && p['video-format'] != null) {
+    // stutter on boxes whose MediaCodec rejects the profile. After a decoder error the player has
+    // already ruled on it (kept mpv's software decode, or fallen back) and reported that.
+    if (_path != DecodePath.software && !_decoderErrorSeen && (p['hwdec-current'] ?? 'no') == 'no' && p['video-format'] != null) {
       unawaited(Telemetry.capture(
         'player',
         'Hardware decoding not used for ${p['video-format']} $resolution $hdr on ${_path!.name}',
@@ -362,6 +384,15 @@ class PlaybackTelemetry {
       ));
     }
     _item = null;
+  }
+
+  /// `even` when every video frame stays on screen for the same number of display refreshes,
+  /// `judder` when the display rate is not a multiple of the frame rate (25/50 fps on a 60 Hz
+  /// output: one frame in five held longer), a stutter no decoder setting can remove.
+  static String? frameCadence(double? fps, double? displayHz) {
+    if (fps == null || displayHz == null || fps <= 0 || displayHz <= 0) return null;
+    final ratio = displayHz / fps;
+    return ratio >= 0.98 && (ratio - ratio.round()).abs() < 0.02 ? 'even' : 'judder';
   }
 
   /// Error message without numbers/URLs, so the same failure groups into one Sentry issue.

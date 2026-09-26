@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/responsive.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/log/layout_audit.dart';
 import '../../core/log/trace_tag.dart';
 import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -267,7 +268,7 @@ class _EpisodeTile extends StatelessWidget {
                         style: theme.textTheme.bodySmall,
                       ),
                     if (episode.plot != null)
-                      Text(episode.plot!, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
+                      TruncationExpected(child: Text(episode.plot!, maxLines: 2, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall)),
                   ],
                 ),
               ),

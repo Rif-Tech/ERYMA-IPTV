@@ -1,10 +1,12 @@
 import 'dart:async';
-import 'dart:io' show InternetAddress;
+import 'dart:io' show InternetAddress, Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
+import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
@@ -12,6 +14,7 @@ import '../../core/images/artwork_cache.dart';
 import '../../core/log/app_logger.dart';
 import '../../core/log/telemetry.dart';
 import '../../core/log/trace_tag.dart';
+import '../../core/platform/native_platform.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/pin_dialog.dart';
@@ -19,6 +22,22 @@ import '../playlists/playlists_provider.dart';
 import 'account_card.dart';
 import 'dns_settings_tiles.dart';
 import 'settings_tiles.dart';
+
+/// Refresh rates the display offers at its current resolution (see [AppSettings.matchFrameRate]).
+final _displayRatesProvider = FutureProvider.autoDispose<Set<String>>((ref) async {
+  try {
+    return NativePlatform.refreshRatesAtCurrentSize(await NativePlatform.displayInfo());
+  } catch (_) {
+    return const {};
+  }
+});
+
+/// "59.940" → "59,94" in French: the rate as the user reads it.
+String _rateLabel(String rate, Locale locale) {
+  final value = double.tryParse(rate);
+  if (value == null) return rate;
+  return NumberFormat('0.##', locale.toLanguageTag()).format(value);
+}
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -198,6 +217,33 @@ class SettingsScreen extends ConsumerWidget {
             },
             onChanged: n.setVideoDecoder,
           ),
+          if (Platform.isAndroid)
+            SettingsEnumTile<VideoOutput>(
+              icon: Icons.tv_rounded,
+              title: l10n.videoOutput,
+              value: s.videoOutput,
+              values: VideoOutput.values,
+              label: (v) => switch (v) {
+                VideoOutput.auto => l10n.videoOutputAuto,
+                VideoOutput.flutter => l10n.videoOutputFlutter,
+                VideoOutput.native => l10n.videoOutputNative,
+              },
+              onChanged: n.setVideoOutput,
+            ),
+          if (Platform.isAndroid && ref.watch(isTelevisionProvider))
+            Builder(builder: (context) {
+              // A display that offers one refresh rate (the Mi TV box: 59.94 Hz only) leaves the
+              // switch nothing to do: greyed out, though still switchable off.
+              final rates = ref.watch(_displayRatesProvider).value ?? const <String>{};
+              final unavailable = rates.length == 1;
+              return SwitchListTile(
+                secondary: const Icon(Icons.slow_motion_video_rounded),
+                title: Text(l10n.matchFrameRate),
+                subtitle: Text(unavailable ? l10n.matchFrameRateUnavailable(_rateLabel(rates.single, Localizations.localeOf(context))) : l10n.matchFrameRateHint),
+                value: s.matchFrameRate,
+                onChanged: unavailable && !s.matchFrameRate ? null : n.setMatchFrameRate,
+              );
+            }),
           SettingsEnumTile<PerformanceMode>(
             icon: Icons.speed_rounded,
             title: l10n.performanceMode,

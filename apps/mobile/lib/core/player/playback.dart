@@ -47,7 +47,7 @@ enum DecodePath {
 
 @immutable
 class PlaybackRequest {
-  const PlaybackRequest({required this.items, this.startIndex = 0, this.startPositionMs, this.decodePath});
+  const PlaybackRequest({required this.items, this.startIndex = 0, this.startPositionMs, this.decodePath, this.forceFlutterOutput = false});
   final List<PlayableItem> items;
   final int startIndex;
   final int? startPositionMs;
@@ -55,13 +55,17 @@ class PlaybackRequest {
   /// Forced decode path (set when the player restarts after a failed attempt); null = settings.
   final DecodePath? decodePath;
 
+  /// Set when the native video output never got its surface: this playback uses the built-in one.
+  final bool forceFlutterOutput;
+
   PlayableItem get current => items[startIndex];
 
-  PlaybackRequest copyWith({int? startIndex, int? startPositionMs, DecodePath? decodePath}) => PlaybackRequest(
+  PlaybackRequest copyWith({int? startIndex, int? startPositionMs, DecodePath? decodePath, bool? forceFlutterOutput}) => PlaybackRequest(
         items: items,
         startIndex: startIndex ?? this.startIndex,
         startPositionMs: startPositionMs ?? this.startPositionMs,
         decodePath: decodePath ?? this.decodePath,
+        forceFlutterOutput: forceFlutterOutput ?? this.forceFlutterOutput,
       );
 }
 

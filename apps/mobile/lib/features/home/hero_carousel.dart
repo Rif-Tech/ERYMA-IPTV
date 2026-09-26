@@ -14,6 +14,7 @@ import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/images/artwork_cache.dart';
 import '../../core/log/app_logger.dart';
+import '../../core/log/layout_audit.dart';
 import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/trace_tag.dart';
 import '../../core/settings/settings.dart';
@@ -311,7 +312,9 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                         padding: const EdgeInsets.only(top: 10),
                         child: ConstrainedBox(
                           constraints: BoxConstraints(maxWidth: size.width * 0.45),
-                          child: Text(plot, maxLines: 2, overflow: TextOverflow.ellipsis, style: text.bodyMedium?.copyWith(color: t.textMuted)),
+                          child: TruncationExpected(
+                            child: Text(plot, maxLines: 2, overflow: TextOverflow.ellipsis, style: text.bodyMedium?.copyWith(color: t.textMuted)),
+                          ),
                         ),
                       ),
                     if (progress != null)

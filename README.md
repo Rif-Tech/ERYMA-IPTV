@@ -69,4 +69,12 @@ R8/shrinkResources, obfuscation Dart et découpage par ABI sont activés. Les bo
 
 L'app détecte les appareils modestes (TV, 32 bits, low-RAM) et active un **mode performance** (réglable dans Réglages → Lecture) : visuels allégés, caches réduits, décodage vidéo direct.
 
+Réglages → Lecture propose aussi :
+- **Sortie vidéo** : « Automatique » (défaut) vaut « Native » sur TV et « Intégrée » ailleurs.
+  - « Native » confie l'image à une vraie surface Android, comme les lecteurs du système : la box gère les couleurs (BT.2020, HDR) et la cadence, et aucune image n'est perdue en 4K 50 i/s.
+  - « Intégrée » dessine l'image dans Flutter.
+- **Adapter la fréquence de l'écran** (TV, désactivé par défaut) : pendant la lecture, la TV passe à une fréquence multiple de la cadence du contenu (50 Hz pour une chaîne à 25/50 i/s, 23,976 Hz pour un film). L'écran noircit 1 à 2 s à chaque changement. Le réglage est grisé quand l'écran ne propose qu'une fréquence (cas de la Mi TV box : 59,94 Hz seulement).
+
+Dans le lecteur, le bouton **Mesures** affiche en direct le format, les couleurs, la cadence image/écran, les images perdues, la synchro A/V et le tampon. Un second appui envoie le rapport à Sentry : résumé plus détail seconde par seconde en CSV.
+
 Voir [docs/api.md](docs/api.md) pour les endpoints et [docs/apk-analysis.md](docs/apk-analysis.md) pour l'analyse de l'application d'origine.

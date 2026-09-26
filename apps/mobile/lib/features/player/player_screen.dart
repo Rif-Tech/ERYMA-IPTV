@@ -28,6 +28,8 @@ import '../../widgets/format.dart';
 import '../playlists/playlists_provider.dart';
 import 'decode_policy.dart';
 import 'mpv_tuning.dart';
+import 'native_video_surface.dart';
+import 'playback_measure.dart';
 import 'playback_telemetry.dart';
 import 'player_controls.dart';
 
@@ -45,7 +47,17 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBindingObserver {
   late final Player _player;
-  late final VideoController _controller;
+  // Null with the native video output: mpv draws on [NativeVideoSurface]'s SurfaceView.
+  VideoController? _controller;
+  late final bool _nativeOutput;
+  final _surfaceReady = Completer<void>();
+  Future<void> _surfaceOps = Future.value();
+  late final PlaybackMeasure _measure;
+  // The display mode was switched for this playback ([AppSettings.matchFrameRate]).
+  bool _frameRateMatched = false;
+  int? _frameRateItem;
+  // A measurement was running when the stream changed: it resumes on the next one.
+  bool _remeasure = false;
   late int _index;
   final _subs = <StreamSubscription>[];
 
@@ -95,6 +107,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _isTv = ref.read(isTelevisionProvider);
     _index = widget.request.startIndex;
     _pendingStartMs = widget.request.startPositionMs;
+    _nativeOutput = usesNativeOutput(ref.read(settingsProvider).videoOutput, isAndroid: Platform.isAndroid, isTv: _isTv) && !widget.request.forceFlutterOutput;
     _player = Player(
       configuration: PlayerConfiguration(
         title: 'MultIPTV',
@@ -103,20 +116,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
         // Warnings carry the decoder story (hwdec rejected, profile unsupported): kept as Sentry
         // breadcrumbs when it is configured.
         logLevel: kDebugMode || Telemetry.enabled ? MPVLogLevel.warn : MPVLogLevel.error,
+        // Native output: no picture until the SurfaceView hands its surface over.
+        vo: _nativeOutput ? 'null' : null,
       ),
     );
     // Decode path ladder: direct (no copy) → hardware copy → software. Failures are remembered per
     // install so `auto` does not retry a path this box already rejected.
     _path = widget.request.decodePath ?? _defaultPath();
-    _controller = VideoController(
-      _player,
-      configuration: switch (_path) {
-        DecodePath.direct => const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec'),
-        DecodePath.hardware => const VideoControllerConfiguration(vo: 'gpu', hwdec: 'mediacodec-copy'),
-        DecodePath.software => const VideoControllerConfiguration(vo: 'gpu', hwdec: 'no', enableHardwareAcceleration: false),
-      },
-    );
+    if (!_nativeOutput) {
+      _controller = VideoController(
+        _player,
+        configuration: switch (_path) {
+          DecodePath.direct => const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec'),
+          DecodePath.hardware => const VideoControllerConfiguration(vo: 'gpu', hwdec: 'mediacodec-copy'),
+          DecodePath.software => const VideoControllerConfiguration(vo: 'gpu', hwdec: 'no', enableHardwareAcceleration: false),
+        },
+      );
+    }
     _tunePlayer();
+    _measure = PlaybackMeasure(_player, facts: _measureFacts);
     final dnsProxy = ref.read(dnsProxyProvider);
     _telemetry = PlaybackTelemetry(
       _player,
@@ -126,6 +144,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       currentProxyPort: () => mounted ? ref.read(dnsProxyProvider).value : null,
       isBenign: isBenignMpvError,
       isDecoderError: isDecoderMpvError,
+      isTransient: isTransientMpvError,
     );
     unawaited(WakelockPlus.enable());
     WidgetsBinding.instance.addObserver(this);
@@ -139,7 +158,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       _player.stream.error.listen((e) {
         if (isBenignMpvError(e)) return;
         if (_path != DecodePath.software && isDecoderMpvError(e)) {
-          _fallback('decoder error: $e');
+          _onDecoderError(e);
+          return;
+        }
+        if (isTransientMpvError(e)) {
+          _onTransientError(e);
           return;
         }
         safeSet(() => _error = e);
@@ -154,7 +177,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
         if (_pendingSeek.value == null) _position.value = p;
       }),
       _player.stream.duration.listen((d) => _duration.value = d),
-      _player.stream.width.listen((w) => safeSet(() => _videoWidth = w)),
+      _player.stream.width.listen((w) {
+        safeSet(() => _videoWidth = w);
+        if ((w ?? 0) > 0 && _frameRateItem != _index) {
+          _frameRateItem = _index;
+          // container-fps settles once the first frames are out.
+          Timer(const Duration(milliseconds: 500), () => unawaited(_matchFrameRate()));
+        }
+        if ((w ?? 0) > 0 && _remeasure) {
+          _remeasure = false;
+          Timer(const Duration(seconds: 1), () {
+            if (mounted && !_measure.active) unawaited(_measure.start());
+          });
+        }
+      }),
       _player.stream.height.listen((h) => safeSet(() => _videoHeight = h)),
       _player.stream.tracks.listen((t) => safeSet(() => _tracks = t)),
       _player.stream.track.listen((t) => safeSet(() => _track = t)),
@@ -189,6 +225,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _saveTimer?.cancel();
     _seekCommitTimer?.cancel();
     _watchdog?.cancel();
+    _decoderCheck?.cancel();
+    _transientCheck?.cancel();
     _progressFocus.dispose();
     _keyFocus.dispose();
     _playFocus.dispose();
@@ -200,8 +238,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _forwardFocus.dispose();
     _saveProgress(flush: true);
     _telemetry.dispose(_closeReason);
+    // A measurement still running is sent (from its samples: mpv is not read again).
+    if (_measure.active) {
+      unawaited(_measure.stop(reason: _closeReason).whenComplete(_measure.dispose));
+    } else {
+      _measure.dispose();
+    }
     for (final s in _subs) {
       s.cancel();
+    }
+    if (_frameRateMatched) unawaited(NativePlatform.resetFrameRate().catchError((Object _) {}));
+    if (_nativeOutput) {
+      // Synchronous FFI call (nothing awaited before it): mpv lets go of the SurfaceView before
+      // the view is torn down with this route.
+      final native = _player.platform;
+      if (native is NativePlayer) unawaited(native.setProperty('vo', 'null', waitForInitialization: false).catchError((Object _) {}));
     }
     _player.dispose();
     _position.dispose();
@@ -236,11 +287,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     });
     _buffering.value = true;
     _pendingSeek.value = null;
+    // Each stream gets its own verdict on decoder and transient errors.
+    _decoderCheck?.cancel();
+    _decoderCheck = null;
+    _transientCheck?.cancel();
     final start = _pendingStartMs;
     _pendingStartMs = null;
+    // A measurement covers one stream: the one being left is sent, the next one is measured from
+    // its first frame.
+    if (_measure.active) {
+      unawaited(_measure.stop(reason: 'switched'));
+      _remeasure = true;
+    }
     await _tuned;
+    if (_nativeOutput && !await _waitForSurface()) return;
     if (!mounted) return;
-    _telemetry.opened(_item, _path, index: _index, total: widget.request.items.length, startMs: start);
+    _telemetry.opened(_item, _path, index: _index, total: widget.request.items.length, startMs: start, output: _nativeOutput ? 'native' : 'flutter');
     try {
       await _player.open(
         Media(_item.url, httpHeaders: const {'User-Agent': 'MultIPTV/1.0'}, start: start == null ? null : Duration(milliseconds: start)),
@@ -262,6 +324,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   late final DecodePath _path;
   bool _fellBack = false;
   Timer? _watchdog;
+  Timer? _decoderCheck;
+  Timer? _transientCheck;
   final _progressFocus = TraceTag.name(FocusNode(debugLabel: 'progress'), 'player-progress');
   // Holds focus while the controls are hidden, so every key reaches [_onKey]. Without it focus
   // fell back to the route's scope: the first press after the controls hid was lost (Right did
@@ -295,47 +359,201 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     });
   }
 
-  /// Restarts this screen one rung down the ladder at the current position and remembers that
-  /// this box cannot use the failed path, so the next playback skips the detour.
-  Future<void> _fallback(String reason) async {
+  /// A hardware path reported a decoder error. mpv often gets over it by itself: a decoder
+  /// re-opened after a surface change, or under `vo=gpu` its own switch to software decoding,
+  /// which already shows the picture (Sentry FLUTTER-E/1R: HEVC 4K). Restarting then only cost a
+  /// black screen, so the verdict ([decoderErrorOutcome]) waits a moment.
+  void _onDecoderError(String error) {
+    if (_fellBack || _decoderCheck != null) return;
+    _decoderCheck = Timer(const Duration(milliseconds: 1500), () async {
+      final hwdec = await _readProperty('hwdec-current');
+      if (!mounted || _fellBack) return;
+      final width = _videoWidth ?? 0;
+      final lowEnd = ref.read(isLowEndDeviceProvider);
+      switch (decoderErrorOutcome(path: _path, hasFrames: width > 0, hwdecCurrent: hwdec, lowEnd: lowEnd, width: width)) {
+        case DecoderErrorOutcome.keep:
+          // A later error (the decoder dying mid-stream) gets its own verdict.
+          _decoderCheck = null;
+          if (hwdec == 'no') {
+            ref.read(appLoggerProvider).warn(
+              'player',
+              '${_path.name}: hardware decoder refused the stream ($error) → mpv decodes in software',
+              context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
+            );
+          }
+        case DecoderErrorOutcome.fallback:
+          await _fallback('decoder error: $error', codecSpecific: true);
+        case DecoderErrorOutcome.refuse:
+          _refuseSoftware4k('decoder error: $error');
+      }
+    });
+  }
+
+  /// One bad packet or a dropped connection mpv reconnects by itself: the error banner showed over
+  /// a picture that kept playing (Sentry FLUTTER-1H, "Error decoding audio."). It only shows if
+  /// nothing plays a few seconds later.
+  void _onTransientError(String error) {
+    _transientCheck?.cancel();
+    _transientCheck = Timer(const Duration(seconds: 5), () {
+      if (!mounted || _error != null || _fellBack) return;
+      if (_videoWidth != null || (_playing.value && !_buffering.value)) return;
+      ref.read(appLoggerProvider).warn('player', 'nothing plays 5 s after: $error', context: {'kind': _item.kind.name, 'decode_path': _path.name});
+      setState(() => _error = error);
+    });
+  }
+
+  Future<String?> _readProperty(String name) async {
+    final native = _player.platform;
+    if (native is! NativePlayer) return null;
+    try {
+      return await native.getProperty(name, waitForInitialization: false);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ---- Native video output ---------------------------------------------------
+
+  /// The first surface of the native output, before anything is opened. When it never comes
+  /// (the platform view failed), this playback restarts on the built-in output instead.
+  Future<bool> _waitForSurface() async {
+    try {
+      await _surfaceReady.future.timeout(const Duration(seconds: 5));
+      return true;
+    } on TimeoutException {
+      if (!mounted || _fellBack) return false;
+      _fellBack = true;
+      ref.read(appLoggerProvider).error('player', 'native video surface never came → built-in output', context: {'kind': _item.kind.name, 'decode_path': _path.name});
+      _closeReason = 'native surface missing';
+      context.pushReplacement(Routes.player, extra: widget.request.copyWith(startIndex: _index, forceFlutterOutput: true));
+      return false;
+    }
+  }
+
+  /// [NativeVideoSurface] reports its surface: hand it to mpv (or take it back, [wid] 0), one
+  /// change at a time.
+  void _onSurface(int wid, int width, int height) {
+    _surfaceOps = _surfaceOps.then((_) => _attachSurface(wid, width, height)).catchError((Object e) {
+      ref.read(appLoggerProvider).warn('player', 'native video surface: $e');
+    });
+  }
+
+  Future<void> _attachSurface(int wid, int width, int height) async {
+    // After the set-up, whose vo=null would otherwise switch the surface's vo off again.
+    await _tuned;
+    final native = _player.platform;
+    if (native is! NativePlayer || !mounted) return;
+    Telemetry.breadcrumb('player', wid == 0 ? 'native surface gone' : 'native surface ${width}x$height');
+    for (final (name, value) in nativeSurfaceSteps(_path, wid: wid, width: width, height: height)) {
+      await native.setProperty(name, value);
+    }
+    if (wid == 0) return;
+    if (!_surfaceReady.isCompleted) {
+      _surfaceReady.complete();
+    } else if (!_isLive && _duration.value > Duration.zero) {
+      // A new surface mid-stream (back from the background): restart the picture where it was.
+      unawaited(_player.seek(_position.value));
+    }
+  }
+
+  // ---- Display refresh rate --------------------------------------------------
+
+  /// [AppSettings.matchFrameRate]: move the TV to a refresh rate the stream's frame rate divides
+  /// evenly (25/50 fps → 50 Hz): each frame then stays on screen equally long (no judder).
+  Future<void> _matchFrameRate() async {
+    if (!mounted || !_isTv || !Platform.isAndroid || !ref.read(settingsProvider).matchFrameRate) return;
+    final fps = double.tryParse(await _readProperty('container-fps') ?? '') ?? double.tryParse(await _readProperty('estimated-vf-fps') ?? '');
+    if (fps == null || fps <= 0 || !mounted) return;
+    try {
+      final hz = await NativePlatform.matchFrameRate(fps);
+      _frameRateMatched = true;
+      Telemetry.breadcrumb('player', 'display for ${fps.toStringAsFixed(3)} fps: ${hz == null ? 'no matching mode' : '${hz.toStringAsFixed(3)} Hz'}');
+    } catch (e) {
+      debugPrint('matchFrameRate failed: $e');
+    }
+  }
+
+  // ---- Measurements ------------------------------------------------------------
+
+  Map<String, Object?> _measureFacts() {
+    final settings = ref.read(settingsProvider);
+    return {
+      'kind': _item.kind.name,
+      'item_id': _item.id,
+      'container': Telemetry.extensionOf(_item.url),
+      'decode_path': _path.name,
+      'video_output': _nativeOutput ? 'native' : 'flutter',
+      'video_decoder_setting': settings.videoDecoder.name,
+      'match_frame_rate': settings.matchFrameRate,
+      'performance_low_end': ref.read(isLowEndDeviceProvider),
+      'is_tv': _isTv,
+    };
+  }
+
+  Future<void> _toggleMeasure() async {
+    _showOverlay();
+    if (!_measure.active) {
+      await _measure.start();
+      return;
+    }
+    final sent = await _measure.stop();
+    if (sent && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(AppLocalizations.of(context).measureSent)));
+    }
+  }
+
+  /// Software decode of a 4K stream on a weak box (~2 GB RAM, no hardware help) is far more
+  /// likely to hit a native OOM crash than to just play slowly — that native crash is invisible
+  /// to any Dart try/catch (see openPlayer below), so refuse the combination and show a clear
+  /// error instead of trading a black screen for a crash.
+  void _refuseSoftware4k(String reason) {
+    _fellBack = true;
+    _watchdog?.cancel();
+    // mpv may already be decoding it in software (its own fallback under vo=gpu).
+    unawaited(_player.stop());
+    ref.read(appLoggerProvider).error(
+      'player',
+      '${_path.name} failed ($reason) → refusing software fallback for 4K on a low-end device',
+      context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
+    );
+    setState(() => _error = AppLocalizations.of(context).qualityNotSupportedLowEnd);
+  }
+
+  /// Restarts this screen one rung down the ladder at the current position. A failure of the
+  /// whole path ([codecSpecific] false: no frame at all) is remembered for the install, so the
+  /// next playback skips the detour.
+  Future<void> _fallback(String reason, {bool codecSpecific = false}) async {
     if (_fellBack || !mounted) return;
     // Software is a weak box's second chance for everything short of 4K (refused below).
     final next = nextDecodePath(_path, lowEnd: ref.read(isLowEndDeviceProvider));
     if (next == null) return;
     // Emulators have no other working path: keep the current one and let the error show.
     if (ref.read(isEmulatorProvider)) return;
-    // Software decode of a 4K stream on a weak box (~2 GB RAM, no hardware help) is far more
-    // likely to hit a native OOM crash than to just play slowly — that native crash is invisible
-    // to any Dart try/catch (see openPlayer below), so refuse the combination up front and show a
-    // clear error instead of trading a black screen for a crash. Only known ≥4K streams are
-    // blocked (a stream whose dimensions were never reported might simply be fully unsupported,
-    // and software is still worth trying there).
+    // Only known ≥4K streams are refused: a stream whose dimensions were never reported might
+    // simply be fully unsupported, and software is still worth trying there.
     if (next == DecodePath.software && ref.read(isLowEndDeviceProvider) && (_videoWidth ?? 0) >= 3840) {
-      _fellBack = true;
-      _watchdog?.cancel();
-      ref.read(appLoggerProvider).error(
-        'player',
-        '${_path.name} failed ($reason) → refusing software fallback for 4K on a low-end device',
-        context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
-      );
-      setState(() => _error = AppLocalizations.of(context).qualityNotSupportedLowEnd);
+      _refuseSoftware4k(reason);
       return;
     }
     _fellBack = true;
     _watchdog?.cancel();
+    final position = _isLive ? null : _position.value.inMilliseconds;
+    // This screen lives on until the replacement's transition ends: stop decoding now, two
+    // decoders at once on a 2 GB box stutter, run short of memory and play the sound twice.
+    unawaited(_player.stop());
     ref.read(appLoggerProvider).warn(
       'player',
       '${_path.name} failed ($reason) → restarting with ${next.name}',
       context: {'width': _videoWidth, 'height': _videoHeight, 'kind': _item.kind.name},
     );
-    // Only a hardware-copy failure is remembered for the whole install: `direct` failures are
-    // per stream (one SD channel refused by the decoder must not disable it for every channel).
-    if (ref.read(settingsProvider).videoDecoder == VideoDecoder.auto && _path == DecodePath.hardware) {
+    // `direct` failures are per stream (one SD channel refused by the decoder must not disable it
+    // for every channel), and so is a decoder refusing one codec or profile: remembering that sent
+    // every later stream, H.264 included, to software decoding.
+    if (!codecSpecific && ref.read(settingsProvider).videoDecoder == VideoDecoder.auto && _path == DecodePath.hardware) {
       await ref.read(sharedPreferencesProvider).setBool(hardwareCopyUnsupportedKey, true);
     }
     if (!mounted) return;
     _closeReason = 'fallback to ${next.name}';
-    final position = _isLive ? null : _position.value.inMilliseconds;
     context.pushReplacement(
       Routes.player,
       extra: widget.request.copyWith(startIndex: _index, startPositionMs: position, decodePath: next),
@@ -349,7 +567,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       _tuned = Future.value();
       return;
     }
-    _tuned = tuneMpv(native, isLive: _isLive, path: _path, lowEnd: ref.read(isLowEndDeviceProvider), dnsProxyPort: ref.read(dnsProxyProvider).value);
+    _tuned = Future.wait([
+      tuneMpv(native, isLive: _isLive, path: _path, lowEnd: ref.read(isLowEndDeviceProvider), dnsProxyPort: ref.read(dnsProxyProvider).value),
+      if (_nativeOutput) _setUpNativeOutput(native),
+    ]);
+  }
+
+  Future<void> _setUpNativeOutput(NativePlayer native) async {
+    for (final MapEntry(:key, :value) in nativeOutputSetup(_path).entries) {
+      await native.setProperty(key, value);
+    }
   }
 
   Future<void> _saveProgress({bool flush = false}) async {
@@ -609,6 +836,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final l10n = AppLocalizations.of(context);
+    final subtitleStyle = TextStyle(
+      color: Color(settings.subtitleColor),
+      fontSize: 32 * settings.subtitleScale,
+      backgroundColor: settings.subtitleBackground ? Colors.black87 : Colors.transparent,
+      shadows: settings.subtitleBackground ? null : const [Shadow(blurRadius: 6, color: Colors.black)],
+    );
+    // Lift subtitles above the transport controls while the overlay is visible.
+    final subtitlePadding = EdgeInsets.fromLTRB(24, 24, 24, _overlay && !_isLive ? 150 : 40);
     final fit = switch (settings.videoFit) {
       VideoFit.contain => BoxFit.contain,
       VideoFit.cover => BoxFit.cover,
@@ -655,23 +890,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
             child: Stack(
               fit: StackFit.expand,
               children: [
-                RepaintBoundary(
-                  child: Video(
-                    controller: _controller,
-                    controls: NoVideoControls,
-                    fit: fit,
-                    subtitleViewConfiguration: SubtitleViewConfiguration(
-                      style: TextStyle(
-                        color: Color(settings.subtitleColor),
-                        fontSize: 32 * settings.subtitleScale,
-                        backgroundColor: settings.subtitleBackground ? Colors.black87 : Colors.transparent,
-                        shadows: settings.subtitleBackground ? null : const [Shadow(blurRadius: 6, color: Colors.black)],
-                      ),
-                      // Lift subtitles above the transport controls while the overlay is visible.
-                      padding: EdgeInsets.fromLTRB(24, 24, 24, _overlay && !_isLive ? 150 : 40),
+                if (_nativeOutput) ...[
+                  NativeVideoSurface(onSurface: _onSurface, videoWidth: _videoWidth, videoHeight: _videoHeight, fit: settings.videoFit),
+                  PlayerSubtitles(lines: _player.stream.subtitle, style: subtitleStyle, padding: subtitlePadding),
+                ] else
+                  RepaintBoundary(
+                    child: Video(
+                      controller: _controller!,
+                      controls: NoVideoControls,
+                      fit: fit,
+                      subtitleViewConfiguration: SubtitleViewConfiguration(style: subtitleStyle, padding: subtitlePadding),
                     ),
                   ),
-                ),
                 if (_error == null)
                   ValueListenableBuilder<bool>(
                     valueListenable: _buffering,
@@ -695,6 +925,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                   ),
                 ),
                 if (_showList) _buildList(context),
+                IgnorePointer(child: PlayerMeasurePanel(snapshot: _measure.snapshot)),
               ],
             ),
           ),
@@ -826,62 +1057,81 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                     ],
                   ),
                   Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (!_isLive)
-                          ValueListenableBuilder<Duration>(
-                            valueListenable: _duration,
-                            builder: (_, dur, _) => ValueListenableBuilder<Duration>(
-                              valueListenable: _position,
-                              builder: (_, pos, _) => Padding(
-                                padding: const EdgeInsets.only(right: 12),
-                                child: Text(dur > pos ? '−${formatDuration(dur - pos)}' : formatDuration(dur), style: text.labelLarge),
+                    // A film with audio and subtitle choices fills this side: the tools shrink a
+                    // little rather than the last one going off the row (Sentry FLUTTER-2B, 5 px).
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!_isLive)
+                              ValueListenableBuilder<Duration>(
+                                valueListenable: _duration,
+                                builder: (_, dur, _) => ValueListenableBuilder<Duration>(
+                                  valueListenable: _position,
+                                  builder: (_, pos, _) => Padding(
+                                    padding: const EdgeInsets.only(right: 12),
+                                    child: Text(dur > pos ? '−${formatDuration(dur - pos)}' : formatDuration(dur), style: text.labelLarge),
+                                  ),
+                                ),
+                              ),
+                            if (_tracks.audio.length > 2)
+                              PlayerTrackButton<AudioTrack>(
+                                icon: Icons.audiotrack_rounded,
+                                tooltip: l10n.audioTrack,
+                                tracks: _tracks.audio.where((t) => t.id != 'auto').toList(),
+                                current: _track.audio,
+                                label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                                onSelected: (t) {
+                                  _player.setAudioTrack(t);
+                                  _showOverlay();
+                                },
+                              ),
+                            if (_tracks.subtitle.length > 1)
+                              PlayerTrackButton<SubtitleTrack>(
+                                icon: Icons.subtitles_rounded,
+                                tooltip: l10n.subtitleTrack,
+                                tracks: _tracks.subtitle.where((t) => t.id != 'auto').toList(),
+                                current: _track.subtitle,
+                                label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                                onSelected: (t) {
+                                  _player.setSubtitleTrack(t);
+                                  _showOverlay();
+                                },
+                              ),
+                            if (!_isLive)
+                              PopupMenuButton<double>(
+                                tooltip: l10n.playbackSpeed,
+                                onSelected: (r) => _player.setRate(r),
+                                itemBuilder: (_) => [for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]) PopupMenuItem(value: r, child: Text('${r}x'))],
+                                child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('${_rate}x', style: text.labelLarge)),
+                              ),
+                            IconButton(
+                              tooltip: l10n.videoFit,
+                              icon: const Icon(Icons.aspect_ratio_rounded),
+                              onPressed: () {
+                                final values = VideoFit.values;
+                                final next = values[(values.indexOf(settings.videoFit) + 1) % values.length];
+                                ref.read(settingsProvider.notifier).setVideoFit(next);
+                                _showOverlay();
+                              },
+                            ),
+                            // Live numbers on screen, sent to Sentry on the second press (or on leaving).
+                            ValueListenableBuilder<MeasureSnapshot?>(
+                              valueListenable: _measure.snapshot,
+                              builder: (_, snapshot, _) => IconButton(
+                                tooltip: l10n.playerMeasure,
+                                isSelected: snapshot != null,
+                                icon: const Icon(Icons.monitor_heart_outlined),
+                                selectedIcon: const Icon(Icons.monitor_heart_rounded),
+                                onPressed: _toggleMeasure,
                               ),
                             ),
-                          ),
-                        if (_tracks.audio.length > 2)
-                          PlayerTrackButton<AudioTrack>(
-                            icon: Icons.audiotrack_rounded,
-                            tooltip: l10n.audioTrack,
-                            tracks: _tracks.audio.where((t) => t.id != 'auto').toList(),
-                            current: _track.audio,
-                            label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
-                            onSelected: (t) {
-                              _player.setAudioTrack(t);
-                              _showOverlay();
-                            },
-                          ),
-                        if (_tracks.subtitle.length > 1)
-                          PlayerTrackButton<SubtitleTrack>(
-                            icon: Icons.subtitles_rounded,
-                            tooltip: l10n.subtitleTrack,
-                            tracks: _tracks.subtitle.where((t) => t.id != 'auto').toList(),
-                            current: _track.subtitle,
-                            label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
-                            onSelected: (t) {
-                              _player.setSubtitleTrack(t);
-                              _showOverlay();
-                            },
-                          ),
-                        if (!_isLive)
-                          PopupMenuButton<double>(
-                            tooltip: l10n.playbackSpeed,
-                            onSelected: (r) => _player.setRate(r),
-                            itemBuilder: (_) => [for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]) PopupMenuItem(value: r, child: Text('${r}x'))],
-                            child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('${_rate}x', style: text.labelLarge)),
-                          ),
-                        IconButton(
-                          tooltip: l10n.videoFit,
-                          icon: const Icon(Icons.aspect_ratio_rounded),
-                          onPressed: () {
-                            final values = VideoFit.values;
-                            final next = values[(values.indexOf(settings.videoFit) + 1) % values.length];
-                            ref.read(settingsProvider.notifier).setVideoFit(next);
-                            _showOverlay();
-                          },
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ],

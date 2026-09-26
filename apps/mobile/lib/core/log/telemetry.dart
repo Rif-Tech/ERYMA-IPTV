@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -160,6 +161,7 @@ abstract final class Telemetry {
     Map<String, Object?>? data,
     List<String>? fingerprint,
     Duration throttle = const Duration(minutes: 5),
+    List<SentryAttachment> attachments = const [],
   }) async {
     if (!enabled) return null;
     final key = (fingerprint ?? [category, message]).join('|');
@@ -174,12 +176,16 @@ abstract final class Telemetry {
         await scope.setTag('category', category);
         if (data != null) await scope.setContexts('details', _scrubValue(data));
         if (fingerprint != null) scope.fingerprint = fingerprint;
+        for (final attachment in attachments) {
+          scope.addAttachment(attachment);
+        }
       },
     );
   }
 
-  /// A user report (Sentry → User Feedback, not an issue), with the breadcrumb trail, tags and
-  /// contexts of the moment it was sent.
+  /// A user report (Sentry → User Feedback, not an issue), with the tags and contexts of the
+  /// moment it was sent. Sentry leaves breadcrumbs out of feedback events: the trail (remote keys,
+  /// screens, player) travels as a `breadcrumbs.txt` attachment instead.
   static Future<SentryId?> feedback(String message, {Map<String, Object?>? data}) async {
     if (!enabled) return null;
     return Sentry.captureFeedback(
@@ -187,9 +193,20 @@ abstract final class Telemetry {
       withScope: (scope) async {
         await scope.setTag('category', 'user_report');
         if (data != null) await scope.setContexts('details', _scrubValue(data));
+        final trail = breadcrumbTrail(scope.breadcrumbs);
+        if (trail.isNotEmpty) {
+          scope.addAttachment(SentryAttachment.fromUint8List(Uint8List.fromList(utf8.encode(trail)), 'breadcrumbs.txt', contentType: 'text/plain'));
+        }
       },
     );
   }
+
+  /// One line per breadcrumb, oldest first: `time [category] message {data}`.
+  @visibleForTesting
+  static String breadcrumbTrail(Iterable<Breadcrumb> crumbs) => crumbs
+      .map((b) => '${b.timestamp.toUtc().toIso8601String()} ${b.level?.name ?? 'info'} [${b.category ?? '-'}] ${b.message ?? ''}'
+          '${b.data == null || b.data!.isEmpty ? '' : ' ${jsonEncode(_scrubValue(b.data))}'}')
+      .join('\n');
 
   static void exception(Object error, StackTrace? stack, {required String category, Map<String, Object?>? data}) {
     if (!enabled) return;
@@ -245,7 +262,16 @@ abstract final class Telemetry {
           _ => logger.info(message, attributes: attributes),
         }));
     if (level == 'error' || level == 'warn') {
-      unawaited(capture(category, message, level: sentryLevel, data: context));
+      unawaited(capture(category, message, level: sentryLevel, data: context, fingerprint: ['log', category, messageKind(message)]));
     }
+  }
+
+  /// [message] without URLs or numbers, so one kind of problem groups into one issue. Every
+  /// [AppLogger] event is sent from the same call stack: without an explicit fingerprint Sentry
+  /// grouped them by that stack, merging unrelated problems (FLUTTER-E held decoder fallbacks and a
+  /// hero playback failure).
+  static String messageKind(String message) {
+    final kind = scrub(message).replaceAll(RegExp(r'\d+'), '#').trim();
+    return kind.length > 120 ? kind.substring(0, 120) : kind;
   }
 }

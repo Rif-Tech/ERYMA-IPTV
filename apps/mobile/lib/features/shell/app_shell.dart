@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,6 +50,30 @@ FocusNode? topLeftFocusable(FocusScopeNode scope) {
   }
   return best;
 }
+
+/// Where the focus lands when handed to [node]: the node itself, or for a scope the element it
+/// remembers (followed through nested scopes: a page's route scope, a home row), else its
+/// top-left focusable. Never a bare scope, which would hold the focus with nothing visible
+/// (Sentry FLUTTER-1W). Null when nothing in there can take the focus.
+FocusNode? focusTargetIn(FocusNode node) {
+  var n = node;
+  while (n is FocusScopeNode) {
+    final next = n.focusedChild;
+    if (next == null || !next.canRequestFocus) return topLeftFocusable(n);
+    n = next;
+  }
+  return n.canRequestFocus ? n : null;
+}
+
+/// Keys that bring back a focus lost inside the page (see [_TvFocusBridge]).
+final _recoveryKeys = {
+  LogicalKeyboardKey.arrowUp,
+  LogicalKeyboardKey.arrowDown,
+  LogicalKeyboardKey.arrowLeft,
+  LogicalKeyboardKey.arrowRight,
+  LogicalKeyboardKey.select,
+  LogicalKeyboardKey.enter,
+};
 
 /// One stable, never-recreated node per tab (so content panes can jump back to the active one on
 /// D-pad up, and OK on a tab keeps the cursor on it once the page has loaded).
@@ -139,6 +165,17 @@ class _TvFocusBridge extends ConsumerWidget {
         if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
         final current = FocusManager.instance.primaryFocus;
         if (current == null) return KeyEventResult.ignored;
+        // Focus dropped onto a bare scope of the page (the focused item rebuilt away, a text field
+        // let go by the keyboard): nothing is highlighted, and a geometric move from a whole-page
+        // scope lands anywhere. This key only brings the cursor back where the page remembers it.
+        if (current is FocusScopeNode && current.focusedChild == null && body.hasFocus && _recoveryKeys.contains(event.logicalKey)) {
+          final target = focusTargetIn(current);
+          if (target != null && target != current) {
+            RemoteKeyTracker.note('tab-bridge: focus recovered from a bare scope');
+            target.requestFocus();
+            return KeyEventResult.handled;
+          }
+        }
         // A bare scope (content emptied under the cursor) reports directional moves as successful
         // without moving; treat it as "nowhere to go".
         final canMove = current is! FocusScopeNode;
@@ -176,12 +213,12 @@ class _TvFocusBridge extends ConsumerWidget {
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown && !body.hasFocus) {
-          // `focusedChild` can point at a node from a tab switched away from since; that subtree is
-          // now excluded (ExcludeFocus in _BranchStack), so requestFocus on it would silently no-op.
-          final remembered = body.focusedChild;
-          final child = (remembered != null && remembered.canRequestFocus) ? remembered : topLeftFocusable(body);
-          RemoteKeyTracker.note('tab-bridge: down → page (${remembered != null && remembered.canRequestFocus ? 'remembered' : 'top-left'})');
-          (child ?? body).requestFocus();
+          // `focusedChild` can point at a node from a tab switched away from since (that subtree is
+          // now excluded: ExcludeFocus in _BranchStack), or at the page's own scope once it lost
+          // its element: focusTargetIn falls back to the page's top-left element in both cases.
+          final child = focusTargetIn(body);
+          RemoteKeyTracker.note('tab-bridge: down → page${child == null ? ' (nothing to focus, stays)' : ''}');
+          child?.requestFocus();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -234,14 +271,32 @@ class _AppShellState extends ConsumerState<AppShell> {
         final root = bodyScope.context;
         final jumped = root is Element ? _resetScrollables(root) : 0;
         // A second frame: the lists must lay out at their start before "top-left" means anything.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final child = topLeftFocusable(bodyScope);
-          (child ?? bodyScope).requestFocus();
-          Telemetry.breadcrumb('focus', 'page reset: $route', data: {'scrollables_reset': jumped, 'focus': TraceTag.pathOf(child)});
-        });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _focusPageStart(route, jumped));
         WidgetsBinding.instance.scheduleFrame();
       });
+
+  /// Puts the D-pad cursor on the page's first element. A tab opened for the first time is built
+  /// only now (and its lists load after): until it has something to focus, the cursor stays on its
+  /// tab rather than on the page's bare scope, which its route grabs when it is first shown
+  /// (Sentry FLUTTER-7, 1K); a few more tries catch the content as it arrives.
+  void _focusPageStart(String route, int jumped, [int attempt = 0]) {
+    if (!mounted) return;
+    final bodyScope = ref.read(bodyScopeProvider);
+    final tab = ref.read(_tabFocusNodesProvider)[_index];
+    final current = FocusManager.instance.primaryFocus;
+    // The user moved on meanwhile: leave the cursor where they put it.
+    if (attempt > 0 && current != tab && !RemoteKeyTracker.isLost(current)) return;
+    final child = topLeftFocusable(bodyScope);
+    if (child == null && attempt < _pageFocusAttempts) {
+      if (RemoteKeyTracker.isLost(current) && tab.context != null) tab.requestFocus();
+      Timer(const Duration(milliseconds: 100), () => _focusPageStart(route, jumped, attempt + 1));
+      return;
+    }
+    child?.requestFocus();
+    Telemetry.breadcrumb('focus', 'page reset: $route', data: {'scrollables_reset': jumped, 'focus': TraceTag.pathOf(child), 'attempts': attempt + 1});
+  }
+
+  static const _pageFocusAttempts = 20;
 
   @override
   Widget build(BuildContext context) {

@@ -12,10 +12,13 @@ import 'trace_tag.dart';
 /// focused element before/after as a readable path (`home/new-movies/h#3`, see [TraceTag]), its
 /// position once scrolling has settled, the scroll offsets, and which custom handler acted on the
 /// key ([note]). Reports, as events:
-/// - focus lost: after a key, nothing (or only a bare FocusScope) holds the primary focus;
+/// - focus lost: once the screen has settled after a key, nothing (or only a bare FocusScope)
+///   holds the primary focus, or the key found the focus already lost (something dropped it);
 /// - stuck: the same arrow pressed [_stuckThreshold] times in a row without focus moving, no
 ///   handler acting on it ([note]) and the list not already at its end in that direction;
-/// - off-screen: the focused element is still outside the screen once scrolling has settled;
+/// - off-screen: the focused element is still outside the screen once scrolling has settled and
+///   the remote is idle (a check overtaken by the next key or a held key is dropped: the focus
+///   is then legitimately mid-way, and the last key of the burst gets its own check);
 /// - row change: Left/Right moved focus out of the horizontal list it was in (see [leftRow]).
 ///
 /// Observes only: the handler always returns false, so key dispatch is unchanged.
@@ -33,6 +36,10 @@ abstract final class RemoteKeyTracker {
   // The focus zoom (x1.08) legitimately pushes a card a few pixels past the screen edge.
   static const _offscreenTolerance = 12.0;
 
+  // A settle check waits at most this many extra rounds for a scroll still animating.
+  static const _maxSettleRetries = 3;
+  static const _settleRetryDelay = Duration(milliseconds: 200);
+
   static bool _installed = false;
   static LogicalKeyboardKey? _heldKey;
   static int _repeats = 0;
@@ -40,6 +47,9 @@ abstract final class RemoteKeyTracker {
   static int _stuckCount = 0;
   static Timer? _idle;
   static int _seq = 0;
+  // Bumped by every key event (repeats included): a settle check from an older generation is
+  // stale, the focus has moved on since.
+  static int _generation = 0;
   static final _notes = <String>[];
 
   static void install() {
@@ -57,13 +67,19 @@ abstract final class RemoteKeyTracker {
   static bool _onKey(KeyEvent event) {
     if (event is KeyRepeatEvent) {
       _repeats++;
+      _generation++;
       return false;
     }
     if (event is KeyUpEvent) {
       if (_repeats > 0 && event.logicalKey == _heldKey) {
-        final data = {'repeats': _repeats, 'route': route, 'focus': describe(FocusManager.instance.primaryFocus)};
-        Telemetry.breadcrumb('dpad', '${_label(event.logicalKey)} held', data: data, type: 'user');
-        Telemetry.trace('dpad', '${_label(event.logicalKey)} held', data);
+        final label = _label(event.logicalKey);
+        final data = <String, Object?>{'repeats': _repeats, 'route': route, 'focus': describe(FocusManager.instance.primaryFocus)};
+        Telemetry.breadcrumb('dpad', '$label held', data: data, type: 'user');
+        Telemetry.trace('dpad', '$label held', data);
+        // Where a held key finally left the focus gets the settle check its repeats skipped.
+        final generation = ++_generation;
+        final node = FocusManager.instance.primaryFocus;
+        Timer(_settleDelay, () => _settled(generation, '$label held', node, {...data, 'key': label, 'seq': _seq}));
       }
       _repeats = 0;
       return false;
@@ -76,13 +92,18 @@ abstract final class RemoteKeyTracker {
     final snapshot = _Snapshot.of(before);
     final routeBefore = route;
     final seq = ++_seq;
-    Timer.run(() => _afterKey(seq, event.logicalKey, before, snapshot, routeBefore, List.of(_notes)));
+    final generation = ++_generation;
+    Timer.run(() => _afterKey(seq, generation, event.logicalKey, before, snapshot, routeBefore, List.of(_notes)));
     _idle?.cancel();
     _idle = Timer(_idleDelay, () => onIdle?.call());
     return false;
   }
 
-  static void _afterKey(int seq, LogicalKeyboardKey key, FocusNode? before, _Snapshot from, String routeBefore, List<String> notes) {
+  /// Nothing usable holds the focus: no node at all, or a scope with no focused child (content
+  /// emptied or rebuilt under the cursor, a text field dropped by the keyboard).
+  static bool isLost(FocusNode? node) => node == null || (node is FocusScopeNode && node.focusedChild == null);
+
+  static void _afterKey(int seq, int generation, LogicalKeyboardKey key, FocusNode? before, _Snapshot from, String routeBefore, List<String> notes) {
     final after = FocusManager.instance.primaryFocus;
     final moved = after != before || route != routeBefore;
     final label = _label(key);
@@ -101,9 +122,10 @@ abstract final class RemoteKeyTracker {
     };
     Telemetry.breadcrumb('dpad', moved ? '$label: ${from.path} → ${to.path}' : '$label: ${from.path} (focus unchanged)', data: data, type: 'user');
 
-    final focusLost = after == null || (after is FocusScopeNode && after.focusedChild == null);
-    if (focusLost) {
-      unawaited(Telemetry.capture('dpad', 'D-pad focus lost on $route', data: data, fingerprint: ['dpad-focus-lost', route]));
+    // The focus was already gone when the key came: whatever dropped it is the bug, even when a
+    // handler recovered it on this key. Only on real screens (not before the first focus).
+    if (before != null && isLost(before) && seq > 1) {
+      unawaited(Telemetry.capture('dpad', 'D-pad focus lost on $route', data: {...data, 'lost_before_key': true}, fingerprint: ['dpad-focus-lost', route]));
     }
 
     final horizontal = key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight;
@@ -119,7 +141,7 @@ abstract final class RemoteKeyTracker {
     }
 
     // Settled position: where the element really ended up once scroll animations are done.
-    Timer(_settleDelay, () => _settled(seq, label, after, data));
+    Timer(_settleDelay, () => _settled(generation, label, after, data));
 
     // The player remaps arrows (seek, zap, show controls) without moving focus: not "stuck" there.
     // Neither is a key a handler acted on (the hero switching slides) nor one pressed against the
@@ -144,8 +166,14 @@ abstract final class RemoteKeyTracker {
     }
   }
 
-  static void _settled(int seq, String label, FocusNode? node, Map<String, Object?> data) {
+  static void _settled(int generation, String label, FocusNode? node, Map<String, Object?> data, [int retries = 0]) {
+    // Another key came since: the focus is mid-way through a burst, which gets its own check.
+    if (generation != _generation) return;
     final current = FocusManager.instance.primaryFocus;
+    if (retries < _maxSettleRetries && _scrolling(current)) {
+      Timer(_settleRetryDelay, () => _settled(generation, label, node, data, retries + 1));
+      return;
+    }
     final settled = _Snapshot.of(current);
     final full = {
       ...data,
@@ -157,6 +185,10 @@ abstract final class RemoteKeyTracker {
       if (settled.offscreen != null) 'offscreen': settled.offscreen,
     };
     Telemetry.trace('dpad', '$label → ${settled.path}', full);
+    if (isLost(current) && !route.startsWith('/player')) {
+      unawaited(Telemetry.capture('dpad', 'D-pad focus lost on $route', data: full, fingerprint: ['dpad-focus-lost', route]));
+      return;
+    }
     if (settled.offscreen != null && !route.startsWith('/player')) {
       unawaited(Telemetry.capture(
         'dpad',
@@ -166,6 +198,18 @@ abstract final class RemoteKeyTracker {
         throttle: const Duration(minutes: 10),
       ));
     }
+  }
+
+  /// Whether a list holding [node] is still scrolling (a reveal animation not finished yet).
+  static bool _scrolling(FocusNode? node) {
+    var context = node?.context;
+    while (context != null && context.mounted) {
+      final scrollable = Scrollable.maybeOf(context);
+      if (scrollable == null) return false;
+      if (scrollable.position.isScrollingNotifier.value) return true;
+      context = scrollable.context;
+    }
+    return false;
   }
 
   /// Whether a Left/Right from [from] to [to] left the horizontal list the focus was in (a shelf

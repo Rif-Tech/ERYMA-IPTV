@@ -57,11 +57,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         RemoteKeyTracker.note(ok ? 'search: field → first result row' : 'search: field, no results below');
         return ok ? KeyEventResult.handled : KeyEventResult.ignored;
       }
+      // OK brings the keyboard back on a field that kept the focus without it (_onFieldFocus).
+      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.select) {
+        final editable = node.context?.findAncestorStateOfType<EditableTextState>();
+        if (editable != null) {
+          RemoteKeyTracker.note('search: OK → keyboard');
+          editable.requestKeyboard();
+          return KeyEventResult.handled;
+        }
+      }
       // Up: unhandled here, so the tab bridge takes it straight to the tab bar.
       return KeyEventResult.ignored;
     },
   );
   Timer? _debounce;
+  // Set by the keyboard's search key while the results of the submitted query are loading.
+  bool _focusResultsWhenReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fieldFocus.addListener(_onFieldFocus);
+  }
 
   bool _focusFirstResult() {
     for (final row in [_channelsScope, _moviesScope, _seriesScope]) {
@@ -71,6 +88,34 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       return true;
     }
     return false;
+  }
+
+  // Android closes the input connection when its keyboard is dismissed, and Flutter then drops the
+  // field's focus onto the page's bare scope: nothing highlighted, the next arrow went anywhere and
+  // Down from the tabs came back to that scope (Sentry FLUTTER-1W). The field keeps the focus
+  // instead, keyboard down: OK opens it again.
+  void _onFieldFocus() {
+    if (_fieldFocus.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _fieldFocus.hasFocus || !_fieldFocus.canRequestFocus) return;
+      final current = FocusManager.instance.primaryFocus;
+      // Only a scope of this page: not a route opened above it, not another tab, not the tabs.
+      if (current is! FocusScopeNode || !RemoteKeyTracker.isLost(current) || !_fieldFocus.ancestors.contains(current)) return;
+      _fieldFocus.requestFocus();
+      // requestFocus hands the field a keyboard token: spend it so the keyboard stays closed.
+      _fieldFocus.consumeKeyboardToken();
+    });
+  }
+
+  // The keyboard's search key: search now (no debounce), then move to the results once shown.
+  void _submit(String v) {
+    _debounce?.cancel();
+    if (v == ref.read(_queryProvider)) {
+      _focusFirstResult();
+      return;
+    }
+    ref.read(_queryProvider.notifier).set(v);
+    _focusResultsWhenReady = true;
   }
 
   @override
@@ -107,6 +152,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
     final query = ref.watch(_queryProvider);
     final results = ref.watch(searchProvider(query));
+    if (_focusResultsWhenReady && results.hasValue && !results.isLoading) {
+      _focusResultsWhenReady = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusFirstResult();
+      });
+    }
     final top = MediaQuery.paddingOf(context).top;
     final g = context.tokens.pageGutter;
 
@@ -125,7 +176,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 focusNode: _fieldFocus,
                 controller: _controller,
                 textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _focusFirstResult(),
+                // Non-null so the search key keeps the focus (by default it unfocuses the field).
+                onEditingComplete: () {},
+                onSubmitted: _submit,
                 style: Theme.of(context).textTheme.titleMedium,
                 decoration: InputDecoration(
                   hintText: l10n.searchHint,
@@ -141,6 +194,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           onPressed: () {
                             _controller.clear();
                             ref.read(_queryProvider.notifier).set('');
+                            // The button disappears with the query: keep the cursor in the field.
+                            _fieldFocus.requestFocus();
                           },
                         ),
                 ),

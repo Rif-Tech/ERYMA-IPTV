@@ -643,6 +643,66 @@ class AppLocalizationsEn extends AppLocalizations {
   String get decoderSoftware => 'Software — works everywhere, slower';
 
   @override
+  String get videoOutput => 'Video output';
+
+  @override
+  String get videoOutputAuto => 'Automatic (native on TV)';
+
+  @override
+  String get videoOutputFlutter => 'Built-in';
+
+  @override
+  String get videoOutputNative =>
+      'Native — colours and deinterlacing by the box';
+
+  @override
+  String get matchFrameRate => 'Match display refresh rate';
+
+  @override
+  String get matchFrameRateHint =>
+      'Removes judder; the TV goes black 1–2 s when it switches';
+
+  @override
+  String matchFrameRateUnavailable(String rate) {
+    return 'Not available: this display offers a single refresh rate ($rate Hz)';
+  }
+
+  @override
+  String get playerMeasure => 'Measurements';
+
+  @override
+  String get measureSent => 'Measurements sent';
+
+  @override
+  String measureRunning(int seconds) {
+    return 'Measuring: $seconds s — Measurements again to send';
+  }
+
+  @override
+  String get measureVideo => 'Video';
+
+  @override
+  String get measureColors => 'Colours';
+
+  @override
+  String get measureOutput => 'Output';
+
+  @override
+  String get measureDisplay => 'Display';
+
+  @override
+  String get measureFrames => 'Frames/s (content · decoded · shown)';
+
+  @override
+  String get measureDrops => 'Dropped (output · decoder · late)';
+
+  @override
+  String get measureSync => 'A/V sync';
+
+  @override
+  String get measureBuffer => 'Buffer · bitrate';
+
+  @override
   String get qualityNotSupportedLowEnd =>
       'This quality is not supported on this device';
 

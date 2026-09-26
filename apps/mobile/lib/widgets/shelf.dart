@@ -45,6 +45,9 @@ class Shelf extends ConsumerWidget {
           // Leave room for the focus scale so the ring is not clipped by the viewport.
           height: height + 24,
           child: FocusTraversalGroup(
+            // Left/Right only move the focus; revealInRow below scrolls. Flutter's own reveal
+            // jumped the card flush against the screen edge, then ours slid it back by the gutter.
+            policy: ReadingOrderTraversalPolicy(requestFocusCallback: _focusOnly),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               clipBehavior: Clip.none,
@@ -58,19 +61,22 @@ class Shelf extends ConsumerWidget {
               addRepaintBoundaries: false,
               itemBuilder: (context, i) => Padding(
                 padding: EdgeInsets.only(right: gap),
-                // Flutter never auto-scrolls a generic focusable into view vertically: show the
-                // whole section (title + cards) with minimal page movement. Centring the card here
-                // used to scroll on every Left/Right and put the next section in the middle of the
-                // screen, then a second correction made the page bounce.
-                child: Focus(
-                  canRequestFocus: false,
-                  skipTraversal: true,
-                  onFocusChange: (f) {
-                    if (!f) return;
-                    if (shelfContext.mounted) revealSection(shelfContext, reason: 'shelf card $i');
-                    if (context.mounted) revealInRow(context);
-                  },
-                  child: itemBuilder(context, i),
+                // The builder's `context` is the list's: the card needs its own to be revealed.
+                child: Builder(
+                  builder: (cardContext) => Focus(
+                    canRequestFocus: false,
+                    skipTraversal: true,
+                    // Flutter never auto-scrolls a generic focusable into view vertically: show the
+                    // whole section (title + cards) with minimal page movement. Centring the card
+                    // here used to scroll on every Left/Right and put the next section in the
+                    // middle of the screen, then a second correction made the page bounce.
+                    onFocusChange: (f) {
+                      if (!f) return;
+                      if (shelfContext.mounted) revealSection(shelfContext, reason: 'shelf card $i');
+                      if (cardContext.mounted) revealInRow(cardContext, margin: gutter.horizontal / 2);
+                    },
+                    child: itemBuilder(cardContext, i),
+                  ),
                 ),
               ),
             ),
@@ -79,6 +85,9 @@ class Shelf extends ConsumerWidget {
       ],
     );
   }
+
+  static void _focusOnly(FocusNode node, {ScrollPositionAlignmentPolicy? alignmentPolicy, double? alignment, Duration? duration, Curve? curve}) =>
+      node.requestFocus();
 }
 
 /// Section header with optional "see all" action.

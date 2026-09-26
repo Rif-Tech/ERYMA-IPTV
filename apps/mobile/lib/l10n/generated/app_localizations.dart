@@ -1268,6 +1268,114 @@ abstract class AppLocalizations {
   /// **'Software — works everywhere, slower'**
   String get decoderSoftware;
 
+  /// No description provided for @videoOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Video output'**
+  String get videoOutput;
+
+  /// No description provided for @videoOutputAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (native on TV)'**
+  String get videoOutputAuto;
+
+  /// No description provided for @videoOutputFlutter.
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in'**
+  String get videoOutputFlutter;
+
+  /// No description provided for @videoOutputNative.
+  ///
+  /// In en, this message translates to:
+  /// **'Native — colours and deinterlacing by the box'**
+  String get videoOutputNative;
+
+  /// No description provided for @matchFrameRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Match display refresh rate'**
+  String get matchFrameRate;
+
+  /// No description provided for @matchFrameRateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Removes judder; the TV goes black 1–2 s when it switches'**
+  String get matchFrameRateHint;
+
+  /// No description provided for @matchFrameRateUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Not available: this display offers a single refresh rate ({rate} Hz)'**
+  String matchFrameRateUnavailable(String rate);
+
+  /// No description provided for @playerMeasure.
+  ///
+  /// In en, this message translates to:
+  /// **'Measurements'**
+  String get playerMeasure;
+
+  /// No description provided for @measureSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Measurements sent'**
+  String get measureSent;
+
+  /// No description provided for @measureRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Measuring: {seconds} s — Measurements again to send'**
+  String measureRunning(int seconds);
+
+  /// No description provided for @measureVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get measureVideo;
+
+  /// No description provided for @measureColors.
+  ///
+  /// In en, this message translates to:
+  /// **'Colours'**
+  String get measureColors;
+
+  /// No description provided for @measureOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Output'**
+  String get measureOutput;
+
+  /// No description provided for @measureDisplay.
+  ///
+  /// In en, this message translates to:
+  /// **'Display'**
+  String get measureDisplay;
+
+  /// No description provided for @measureFrames.
+  ///
+  /// In en, this message translates to:
+  /// **'Frames/s (content · decoded · shown)'**
+  String get measureFrames;
+
+  /// No description provided for @measureDrops.
+  ///
+  /// In en, this message translates to:
+  /// **'Dropped (output · decoder · late)'**
+  String get measureDrops;
+
+  /// No description provided for @measureSync.
+  ///
+  /// In en, this message translates to:
+  /// **'A/V sync'**
+  String get measureSync;
+
+  /// No description provided for @measureBuffer.
+  ///
+  /// In en, this message translates to:
+  /// **'Buffer · bitrate'**
+  String get measureBuffer;
+
   /// No description provided for @qualityNotSupportedLowEnd.
   ///
   /// In en, this message translates to:

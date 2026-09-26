@@ -29,10 +29,14 @@ void revealSection(BuildContext context, {String reason = 'section'}) {
 }
 
 /// Horizontal counterpart of [revealSection] for one card of a row: scrolls the row just enough
-/// for the card at [context] to be fully visible. Flutter's own reveal only runs for directional
-/// traversal; a card focused by [RowFocusChain] (remembered card) or while a key is held could
-/// stay off-screen.
-void revealInRow(BuildContext context) {
+/// for the card at [context] to be fully visible, [margin] away from the row's edges (the page
+/// gutter: the first card then rests where the row starts). [context] must be the card's own: a
+/// ListView item builder receives the list's context, which reveals the whole list and throws the
+/// row back to its start on every focus (Sentry FLUTTER-1Z/P: cards stuck off-screen).
+///
+/// Reveals in quick succession (a held key) jump instead of animating, so the row never lags
+/// behind the focus and the next card is always laid out for the next key.
+void revealInRow(BuildContext context, {double margin = 0}) {
   final object = context.findRenderObject();
   final scrollable = Scrollable.maybeOf(context, axis: Axis.horizontal);
   if (object == null || !object.attached || scrollable == null) return;
@@ -40,10 +44,20 @@ void revealInRow(BuildContext context) {
   if (viewport == null) return;
   final position = scrollable.position;
   if (!position.hasPixels || !position.hasContentDimensions) return;
-  final target = _minimalOffset(viewport, object, position, 0);
+  final target = _minimalOffset(viewport, object, position, margin);
   if (target == null) return;
-  position.animateTo(target, duration: const Duration(milliseconds: 160), curve: Curves.easeOutCubic);
+  final now = DateTime.now();
+  final last = _lastRowReveal[position];
+  _lastRowReveal[position] = now;
+  if (last != null && now.difference(last) < _rapidReveal) {
+    position.jumpTo(target);
+  } else {
+    position.animateTo(target, duration: const Duration(milliseconds: 160), curve: Curves.easeOutCubic);
+  }
 }
+
+final _lastRowReveal = Expando<DateTime>('row-reveal');
+const _rapidReveal = Duration(milliseconds: 250);
 
 /// Scroll offset that brings [object] fully inside the viewport (plus [margin]) with the least
 /// movement, its start first when it is larger than the viewport; null when already visible.
@@ -92,6 +106,29 @@ class RowFocusChain extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rows still loading change the page's height after the focus has been revealed (at start-up
+    // "Continue watching" arrives above the focused row and pushed it under the screen, Sentry
+    // FLUTTER-S): show the focused row again whenever the page's extent changes.
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (n) {
+        if (n.metrics.axis == Axis.vertical && n.depth == 0) _keepFocusedRowVisible(rows);
+        return false;
+      },
+      child: _keys(child),
+    );
+  }
+
+  static void _keepFocusedRowVisible(List<FocusNode> rows) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final current = FocusManager.instance.primaryFocus;
+      if (current == null) return;
+      final i = rows.indexWhere((r) => r == current || current.ancestors.contains(r));
+      final rowContext = i < 0 ? null : rows[i].context;
+      if (rowContext != null && rowContext.mounted) revealSection(rowContext, reason: 'row $i after the page changed');
+    });
+  }
+
+  Widget _keys(Widget child) {
     return Focus(
       canRequestFocus: false,
       skipTraversal: true,

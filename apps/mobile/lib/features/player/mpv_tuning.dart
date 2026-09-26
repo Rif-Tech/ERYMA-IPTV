@@ -13,10 +13,16 @@ Future<void> tuneMpv(NativePlayer native, {required bool isLive, required Decode
     native.setProperty('hr-seek-framedrop', 'yes'),
     // Stream cache on slow eMMC/flash stalls playback; RAM (demuxer-max-bytes) is enough.
     native.setProperty('cache-on-disk', 'no'),
-    // Never let video fall behind audio: drop frames (in the decoder too) instead of playing in
-    // slow motion when the SoC cannot keep up.
+    // Start once a little is buffered (cache-pause-wait, 1 s): a stream started on its very first
+    // packets ran dry right after its first picture and froze ~1.1 s (Sentry: one live zap in
+    // three, on the Mi TV box).
+    native.setProperty('cache-pause-initial', 'yes'),
+    // Never let video fall behind audio: drop frames instead of playing in slow motion when the
+    // SoC cannot keep up. Decoder-side dropping only helps a CPU decoder; with MediaCodec it cut
+    // frames that would have been on time (4K HEVC on direct: 6 decoder drops in 10 s; 1080p on
+    // the hardware copy: 188 in 27 s, Sentry FLUTTER-5): mpv's default `vo` there.
     native.setProperty('video-sync', 'audio'),
-    native.setProperty('framedrop', 'decoder+vo'),
+    native.setProperty('framedrop', path == DecodePath.software ? 'decoder+vo' : 'vo'),
     // Subtitles are opt-in from the player menu; never auto-select a track.
     native.setProperty('sid', 'no'),
     native.setProperty('sub-auto', 'no'),
@@ -45,4 +51,39 @@ Future<void> tuneMpv(NativePlayer native, {required bool isLive, required Decode
       // Hardware decoding leaves the CPU idle; extra software threads only cost RAM on 2 GB boxes.
       native.setProperty('vd-lavc-threads', '2'),
   ]).then((_) {}, onError: (Object e) => debugPrint('mpv tuning failed: $e'));
+}
+
+/// mpv set-up for [VideoOutput.native], where no media_kit VideoController exists: what its
+/// Android controller sets for the texture, with no picture until a surface arrives
+/// ([nativeSurfaceSteps]).
+Map<String, String> nativeOutputSetup(DecodePath path) => {
+      'vo': 'null',
+      'hwdec': switch (path) {
+        DecodePath.direct => 'mediacodec',
+        DecodePath.hardware => 'mediacodec-copy',
+        DecodePath.software => 'no',
+      },
+      'vid': 'auto',
+      'opengl-es': 'yes',
+      'force-window': 'yes',
+      'gpu-context': 'android',
+      'sub-use-margins': 'no',
+      'sub-font-provider': 'none',
+      'sub-scale-with-window': 'yes',
+      'hwdec-codecs': 'h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1',
+    };
+
+/// Properties attaching mpv to the native surface [wid] (0 detaches it), in order: `vo=null`
+/// first and the real vo last, as media_kit does (a vo started before its `wid` crashes mpv).
+List<(String, String)> nativeSurfaceSteps(DecodePath path, {required int wid, required int width, required int height}) {
+  if (wid == 0) return const [('vo', 'null'), ('wid', '0')];
+  final vo = path == DecodePath.direct ? 'mediacodec_embed' : 'gpu';
+  return [
+    ('vo', 'null'),
+    ('android-surface-size', '${width}x$height'),
+    ('wid', '$wid'),
+    ('vo', vo),
+    // mediacodec_embed only opens its decoder once the video track is selected again.
+    if (vo == 'mediacodec_embed') ('vid', 'auto'),
+  ];
 }

@@ -646,6 +646,66 @@ class AppLocalizationsFr extends AppLocalizations {
   String get decoderSoftware => 'Logiciel — fonctionne partout, plus lent';
 
   @override
+  String get videoOutput => 'Sortie vidéo';
+
+  @override
+  String get videoOutputAuto => 'Automatique (native sur TV)';
+
+  @override
+  String get videoOutputFlutter => 'Intégrée';
+
+  @override
+  String get videoOutputNative =>
+      'Native — couleurs et désentrelacement par la box';
+
+  @override
+  String get matchFrameRate => 'Adapter la fréquence de l\'écran';
+
+  @override
+  String get matchFrameRateHint =>
+      'Supprime les saccades ; l\'écran noircit 1 à 2 s quand la TV change de mode';
+
+  @override
+  String matchFrameRateUnavailable(String rate) {
+    return 'Non disponible : cet écran ne propose qu\'une fréquence ($rate Hz)';
+  }
+
+  @override
+  String get playerMeasure => 'Mesures';
+
+  @override
+  String get measureSent => 'Mesures envoyées';
+
+  @override
+  String measureRunning(int seconds) {
+    return 'Mesure en cours : $seconds s — Mesures à nouveau pour envoyer';
+  }
+
+  @override
+  String get measureVideo => 'Vidéo';
+
+  @override
+  String get measureColors => 'Couleurs';
+
+  @override
+  String get measureOutput => 'Sortie';
+
+  @override
+  String get measureDisplay => 'Écran';
+
+  @override
+  String get measureFrames => 'Images/s (contenu · décodées · affichées)';
+
+  @override
+  String get measureDrops => 'Perdues (sortie · décodeur · en retard)';
+
+  @override
+  String get measureSync => 'Synchro A/V';
+
+  @override
+  String get measureBuffer => 'Tampon · débit';
+
+  @override
   String get qualityNotSupportedLowEnd =>
       'Cette qualité n\'est pas prise en charge sur cet appareil';
 
