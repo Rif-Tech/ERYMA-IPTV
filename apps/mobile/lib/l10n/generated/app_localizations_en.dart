@@ -898,6 +898,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get moreInfo => 'More info';
 
   @override
+  String get showMore => 'Show more';
+
+  @override
+  String get showLess => 'Show less';
+
+  @override
   String get nowLabel => 'Now';
 
   @override

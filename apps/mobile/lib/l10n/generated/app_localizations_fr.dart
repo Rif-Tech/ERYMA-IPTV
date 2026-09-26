@@ -902,6 +902,12 @@ class AppLocalizationsFr extends AppLocalizations {
   String get moreInfo => 'Infos';
 
   @override
+  String get showMore => 'Voir plus';
+
+  @override
+  String get showLess => 'Voir moins';
+
+  @override
   String get nowLabel => 'Maintenant';
 
   @override

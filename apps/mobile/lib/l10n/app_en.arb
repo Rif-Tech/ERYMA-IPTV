@@ -303,6 +303,8 @@
   "recentlyAddedMovies": "New movies",
   "recentlyAddedSeries": "New series",
   "moreInfo": "More info",
+  "showMore": "Show more",
+  "showLess": "Show less",
   "nowLabel": "Now",
   "nextLabel": "Next",
   "remaining": "{time} left",

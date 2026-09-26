@@ -280,6 +280,8 @@
   "recentlyAddedMovies": "Nouveaux films",
   "recentlyAddedSeries": "Nouvelles séries",
   "moreInfo": "Infos",
+  "showMore": "Voir plus",
+  "showLess": "Voir moins",
   "nowLabel": "Maintenant",
   "nextLabel": "Ensuite",
   "remaining": "{time} restantes",

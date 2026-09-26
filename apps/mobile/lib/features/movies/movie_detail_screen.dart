@@ -209,7 +209,12 @@ class DetailLayout extends StatelessWidget {
                               runSpacing: 6,
                               crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
-                                if (meta.isNotEmpty) Text(meta.join('  ·  '), style: text.bodyMedium?.copyWith(color: t.textMuted)),
+                                // Unclamped, a long meta string (title + year + genre + season
+                                // count, e.g. "23 saisons") could wrap the title block past the
+                                // backdrop's fixed height and get clipped at its top (Stack default
+                                // clip) instead of just at the screen edge.
+                                if (meta.isNotEmpty)
+                                  Text(meta.join('  ·  '), maxLines: 1, overflow: TextOverflow.ellipsis, style: text.bodyMedium?.copyWith(color: t.textMuted)),
                                 for (final b in badges) MetaBadge(b),
                               ],
                             ),
@@ -235,7 +240,7 @@ class DetailLayout extends StatelessWidget {
               if (plot != null && plot!.isNotEmpty)
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 820),
-                  child: Text(plot!, style: text.bodyLarge?.copyWith(color: t.textMuted, height: 1.5)),
+                  child: _ExpandableSynopsis(text: plot!, style: text.bodyLarge?.copyWith(color: t.textMuted, height: 1.5)),
                 ),
               if (facts.isNotEmpty)
                 Padding(
@@ -265,5 +270,56 @@ class DetailLayout extends StatelessWidget {
         ),
       ],
     ));
+  }
+}
+
+/// A synopsis clamped to a few lines with a "Show more"/"Show less" toggle, so a long plot never
+/// just grows the page unbounded (a title like "One Piece (1999) — 23 saisons" pairs with a
+/// summary long enough to push everything else several screens down with no way to collapse it).
+class _ExpandableSynopsis extends StatefulWidget {
+  const _ExpandableSynopsis({required this.text, required this.style});
+  final String text;
+  final TextStyle? style;
+
+  @override
+  State<_ExpandableSynopsis> createState() => _ExpandableSynopsisState();
+}
+
+class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
+  static const _collapsedLines = 6;
+  // No TextPainter measurement: a plain length heuristic is enough to decide whether the toggle
+  // is worth showing, and avoids depending on layout timing for something this low-stakes.
+  static const _collapseThreshold = 360;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final needsToggle = widget.text.length > _collapseThreshold;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.text,
+          style: widget.style,
+          maxLines: needsToggle && !_expanded ? _collapsedLines : null,
+          overflow: needsToggle && !_expanded ? TextOverflow.ellipsis : TextOverflow.visible,
+        ),
+        if (needsToggle)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            // A themed TextButton (see SectionHeader's own "action" button): D-pad focusable and
+            // visible out of the box, no custom focus painting needed.
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), minimumSize: Size.zero),
+                child: Text(_expanded ? l10n.showLess : l10n.showMore),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
