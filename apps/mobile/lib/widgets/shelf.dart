@@ -111,7 +111,10 @@ class ShelfRow extends ConsumerWidget {
                 // here used to scroll on every Left/Right and put the next section in the
                 // middle of the screen, then a second correction made the page bounce.
                 onFocusChange: (f) {
-                  if (!f) return;
+                  // A touch tap also moves focus here; only D-pad/keyboard navigation should drive
+                  // the page (a tap mid-drag on tablet otherwise snapped the row back into place,
+                  // fighting the user's own scroll — natural touch scroll needs nothing driving it).
+                  if (!f || FocusManager.instance.highlightMode != FocusHighlightMode.traditional) return;
                   if (rowContext.mounted) revealSection(rowContext, reason: 'shelf card $i');
                   if (cardContext.mounted) revealInRow(cardContext, margin: gutter.horizontal / 2);
                 },

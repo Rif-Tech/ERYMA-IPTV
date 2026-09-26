@@ -136,6 +136,9 @@ class RowFocusChain extends StatelessWidget {
   }
 
   static void _keepFocusedRowVisible(List<FocusNode> rows) {
+    // Only for D-pad/keyboard navigation: a layout shift (an image loading in) during a touch
+    // drag must not snap the page back to the focused row and fight the user's own scroll.
+    if (FocusManager.instance.highlightMode != FocusHighlightMode.traditional) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final current = FocusManager.instance.primaryFocus;
       if (current == null) return;
