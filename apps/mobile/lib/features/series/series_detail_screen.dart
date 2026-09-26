@@ -122,7 +122,9 @@ class SeriesDetailScreen extends ConsumerWidget {
                       if (seasons.length > 1)
                         Flexible(
                           child: SizedBox(
-                            height: 40,
+                            // The chip theme's padding + labelLarge line height need more than 40:
+                            // season 1's chip (built last, `reverse: true`) was clipped at the top.
+                            height: 48,
                             child: TraceTag('seasons', child: ListView.separated(
                               scrollDirection: Axis.horizontal,
                               reverse: true,
