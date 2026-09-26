@@ -113,7 +113,7 @@ Dette découverte pendant cette session, hors périmètre :
 - [ ] **CH+ va à la chaîne précédente de la liste** (et CH− à la suivante) : `channelUp`/`channelDown` sont inversés par rapport à leur nom dans `_handleKey` ([player_screen.dart](../apps/mobile/lib/features/player/player_screen.dart)) — comportement déjà présent, non touché pour ne pas mélanger un changement de sémantique avec le reste de cette session.
 - [ ] **`_seasonProvider` global à toutes les séries** ([series_detail_screen.dart](../apps/mobile/lib/features/series/series_detail_screen.dart)) : la saison choisie sur une série reste sélectionnée en ouvrant une autre, qui peut alors sembler sans épisodes.
 - [ ] **Favoris et catégories masquées non rafraîchis après un changement de profil en cours de session** (`favoriteIdsProvider`/`hiddenCategoriesProvider`, `db.profileId` mutable) : l'étoile et le rail restent ceux de l'ancien profil tant que l'écran n'est pas reconstruit.
-- [ ] **Écran Import** : atteint par `go()`, sans route à dépiler ; la touche Retour matérielle peut encore quitter l'app (même défaut que corrigé pour le sélecteur de playlists ci-dessus, non traité ici).
+- [x] **Écran Import : atteint par `go()`, sans route à dépiler ; la touche Retour matérielle quittait l'app** (même défaut que corrigé pour le sélecteur de playlists ci-dessus). Retour terrain : un import qui reste bloqué (panel Xtream muet/lent) n'offrait alors **aucune** échappatoire — l'utilisateur ne pouvait plus « changer de playlist ». `ImportScreen` ([import_screen.dart](../apps/mobile/lib/features/playlists/import_screen.dart)) a maintenant un `PopScope` qui retombe sur `/playlists`, et un bouton « Changer de playlist » focalisable pendant l'import lui-même (pas seulement dans la branche erreur), pour ne plus dépendre uniquement du Retour matériel.
 
 ## Logs diagnostiques (Supabase + Sentry)
 
@@ -151,7 +151,7 @@ Dette découverte pendant cette session, hors périmètre :
 ## P1 — Portail
 
 - [ ] **Open redirect via `//` ou `/\`** sur `next`, login/signup et `/auth/callback` (seul `startsWith('/')` est vérifié ; un navigateur normalise `/\` en `//`).
-- [ ] **Écritures non atomiques.** `saveProfileAction` remplace les accès playlist d'un profil par DELETE puis INSERT : une insertion en échec supprime tous les accès. `createPlaylistAction` ignore l'erreur d'insertion de `profile_playlists`.
+- [ ] **Écritures non atomiques.** `saveProfileAction` remplace les accès playlist d'un profil par DELETE puis INSERT : une insertion en échec supprime tous les accès. `createPlaylistAction` ignore l'erreur d'insertion de `profile_playlists`. Piste plausible pour un retour « je ne peux plus changer de playlist » côté app : `ChangePlaylistScreen` affiche alors une liste vide pour ce profil alors que les playlists existent toujours côté compte.
 - [ ] **Messages d'erreur non traduits** sur `/add-playlist` : seuls 6 codes sont traduits, les erreurs de `validatePlaylistInput` remontent en anglais.
 - [ ] **Server Action exportées sans garde.** `describeError`/`normalizeCode` dans [app/pairing/actions.ts](../apps/portal/app/pairing/actions.ts) sont exportées d'un fichier `"use server"` sans protection : à déplacer hors de ce fichier.
 - [ ] `'*.ts.net'` dans `allowedOrigins` ([next.config.ts](../apps/portal/next.config.ts)) ne couvre pas les hôtes MagicDNS avec port (il faudrait `**.ts.net:3000`) ; n'a d'effet que derrière un reverse-proxy qui réécrit `x-forwarded-host`.
