@@ -99,12 +99,21 @@ final dnsProbeHostProvider = FutureProvider<String?>((ref) async {
 String dnsProbeTarget(String playlistHost) =>
     InternetAddress.tryParse(playlistHost) == null ? playlistHost : Uri.parse(AppConfig.apiBaseUrl).host;
 
+/// Last resolver logged by [activeDnsResolverProvider], so a re-run over an unrelated settings
+/// change (this provider watches the whole `AppSettings`, not just its DNS fields) does not log
+/// again when the resolver actually stayed the same.
+String? _lastLoggedResolver;
+
 /// Builds the resolver implied by the current settings (null = use the system/operator DNS).
 /// `auto` probes every enabled server against [dnsProbeHostProvider] and keeps the fastest one.
 final activeDnsResolverProvider = FutureProvider<DnsResolver?>((ref) async {
   final settings = ref.watch(settingsProvider);
   final resolver = await _buildResolver(ref, settings);
-  Telemetry.breadcrumb('dns', 'active resolver: ${resolver ?? 'system'} (mode ${settings.dnsMode.name})');
+  final logged = 'active resolver: ${resolver ?? 'system'} (mode ${settings.dnsMode.name})';
+  if (logged != _lastLoggedResolver) {
+    _lastLoggedResolver = logged;
+    Telemetry.breadcrumb('dns', logged);
+  }
   Telemetry.context('dns', {
     'mode': settings.dnsMode.name,
     'server_id': settings.dnsServerId,

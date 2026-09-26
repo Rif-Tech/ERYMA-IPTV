@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -12,7 +11,6 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import 'search_provider.dart';
 import '../player/play.dart';
-import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/trace_tag.dart';
 import '../../widgets/row_focus_chain.dart';
 
@@ -47,39 +45,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _moviesScope = FocusScopeNode(debugLabel: 'search-movies');
   final _seriesScope = FocusScopeNode(debugLabel: 'search-series');
   // A focused TextField swallows the vertical arrows (cursor to line start/end), which strands a
-  // D-pad user in the field: hand them to focus traversal so DOWN reaches the results.
-  late final _fieldFocus = FocusNode(
-    debugLabel: 'search',
-    onKeyEvent: (node, event) {
-      if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
-      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        final ok = _focusFirstResult();
-        RemoteKeyTracker.note(ok ? 'search: field → first result row' : 'search: field, no results below');
-        return ok ? KeyEventResult.handled : KeyEventResult.ignored;
-      }
-      // OK brings the keyboard back on a field that kept the focus without it (_onFieldFocus).
-      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.select) {
-        final editable = node.context?.findAncestorStateOfType<EditableTextState>();
-        if (editable != null) {
-          RemoteKeyTracker.note('search: OK → keyboard');
-          editable.requestKeyboard();
-          return KeyEventResult.handled;
-        }
-      }
-      // Up: unhandled here, so the tab bridge takes it straight to the tab bar.
-      return KeyEventResult.ignored;
-    },
-  );
+  // D-pad user in the field: hand them to focus traversal so DOWN reaches the results. Up is left
+  // unhandled here, so the tab bridge takes it straight to the tab bar.
+  late final _fieldFocus = FocusNode(debugLabel: 'search', onKeyEvent: DpadTextField.keyHandler(onDown: _focusFirstResult));
   Timer? _debounce;
   // Set by the keyboard's search key while the results of the submitted query are loading.
   bool _focusResultsWhenReady = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _fieldFocus.addListener(_onFieldFocus);
-  }
-
+  // Android closes the input connection when its keyboard is dismissed, and Flutter then drops the
+  // field's focus onto the page's bare scope: nothing highlighted, the next arrow went anywhere and
+  // Down from the tabs came back to that scope (Sentry FLUTTER-1W). DpadTextField keeps the field's
+  // own focus instead, keyboard down: OK opens it again.
   bool _focusFirstResult() {
     for (final row in [_channelsScope, _moviesScope, _seriesScope]) {
       final target = rowEntryOf(row);
@@ -88,23 +64,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       return true;
     }
     return false;
-  }
-
-  // Android closes the input connection when its keyboard is dismissed, and Flutter then drops the
-  // field's focus onto the page's bare scope: nothing highlighted, the next arrow went anywhere and
-  // Down from the tabs came back to that scope (Sentry FLUTTER-1W). The field keeps the focus
-  // instead, keyboard down: OK opens it again.
-  void _onFieldFocus() {
-    if (_fieldFocus.hasFocus) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _fieldFocus.hasFocus || !_fieldFocus.canRequestFocus) return;
-      final current = FocusManager.instance.primaryFocus;
-      // Only a scope of this page: not a route opened above it, not another tab, not the tabs.
-      if (current is! FocusScopeNode || !RemoteKeyTracker.isLost(current) || !_fieldFocus.ancestors.contains(current)) return;
-      _fieldFocus.requestFocus();
-      // requestFocus hands the field a keyboard token: spend it so the keyboard stays closed.
-      _fieldFocus.consumeKeyboardToken();
-    });
   }
 
   // The keyboard's search key: search now (no debounce), then move to the results once shown.
@@ -171,13 +130,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             padding: EdgeInsets.fromLTRB(g, top + 12, g, 8),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 720),
-              child: TextField(
+              child: DpadTextField(
                 autofocus: true,
                 focusNode: _fieldFocus,
                 controller: _controller,
                 textInputAction: TextInputAction.search,
-                // Non-null so the search key keeps the focus (by default it unfocuses the field).
-                onEditingComplete: () {},
                 onSubmitted: _submit,
                 style: Theme.of(context).textTheme.titleMedium,
                 decoration: InputDecoration(

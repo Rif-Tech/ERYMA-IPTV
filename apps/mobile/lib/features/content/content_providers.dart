@@ -48,11 +48,12 @@ final hiddenCategoriesProvider = StreamProvider.family<Set<String>, CategoryQuer
 });
 
 /// Visible categories (hidden ones filtered out unless parental control is unlocked in session).
-final categoriesProvider = FutureProvider.family<List<ContentCategory>, CategoryQuery>((ref, q) async {
+/// A stream, not a one-shot read: an import writes categories in its own transaction, and the rail
+/// must pick that up without the app restarting (Sentry FLUTTER-2M/2H).
+final categoriesProvider = StreamProvider.family<List<ContentCategory>, CategoryQuery>((ref, q) {
   final db = ref.watch(databaseProvider);
-  final hidden = await ref.watch(hiddenCategoriesProvider(q).future);
-  final all = await db.getCategories(q.playlistId, q.kind);
-  return all.where((c) => !hidden.contains(c.externalId)).toList();
+  final hidden = ref.watch(hiddenCategoriesProvider(q)).value ?? const <String>{};
+  return db.watchCategories(q.playlistId, q.kind).map((all) => all.where((c) => !hidden.contains(c.externalId)).toList());
 });
 
 final lockedChannelsProvider = StreamProvider.family<Set<String>, String>((ref, playlistId) {

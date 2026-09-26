@@ -110,9 +110,20 @@ class XtreamClient {
     return account;
   }
 
-  Future<List<XtreamCategory>> liveCategories() => _getListMapped('get_live_categories', XtreamCategory.fromJson);
-  Future<List<XtreamCategory>> vodCategories() => _getListMapped('get_vod_categories', XtreamCategory.fromJson);
-  Future<List<XtreamCategory>> seriesCategories() => _getListMapped('get_series_categories', XtreamCategory.fromJson);
+  Future<List<XtreamCategory>> liveCategories() => _categories('get_live_categories');
+  Future<List<XtreamCategory>> vodCategories() => _categories('get_vod_categories');
+  Future<List<XtreamCategory>> seriesCategories() => _categories('get_series_categories');
+
+  /// Some panels occasionally answer a categories call with an empty body or a bare JSON object
+  /// (`_getListMapped` turns both into `[]`, the same as a genuinely empty catalogue) for no
+  /// consistent reason; a second try clears most of them. The category rail otherwise stayed on
+  /// "Tout" until the next import (Sentry FLUTTER-2M/2H).
+  Future<List<XtreamCategory>> _categories(String action) async {
+    final first = await _getListMapped(action, XtreamCategory.fromJson);
+    if (first.isNotEmpty) return first;
+    await Future.delayed(const Duration(seconds: 1));
+    return _getListMapped(action, XtreamCategory.fromJson);
+  }
 
   Future<List<XtreamLiveStream>> liveStreams({String? categoryId}) =>
       _getListMapped('get_live_streams', XtreamLiveStream.fromJson, categoryId == null ? const {} : {'category_id': categoryId});

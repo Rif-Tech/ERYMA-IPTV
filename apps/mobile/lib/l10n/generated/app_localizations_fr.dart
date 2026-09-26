@@ -103,6 +103,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get noFavorites => 'Aucun favori pour le moment.';
 
   @override
+  String get noFavoriteChannels =>
+      'Aucune chaîne favorite. Maintenez OK sur une chaîne, ou ★ dans le lecteur.';
+
+  @override
   String get noRecent => 'Rien de visionné pour le moment.';
 
   @override
@@ -130,6 +134,11 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String resumeFrom(String time) {
     return 'Reprendre à $time';
+  }
+
+  @override
+  String resumeEpisodeAt(int season, int episode, String time) {
+    return 'Reprendre · S$season E$episode · $time';
   }
 
   @override
@@ -703,7 +712,10 @@ class AppLocalizationsFr extends AppLocalizations {
   String get measureSync => 'Synchro A/V';
 
   @override
-  String get measureBuffer => 'Tampon · débit';
+  String get measureBuffer => 'Tampon (réserve / max · reprise)';
+
+  @override
+  String get measureNetwork => 'Débit (reçu / flux)';
 
   @override
   String get qualityNotSupportedLowEnd =>

@@ -58,7 +58,12 @@ class _ChannelList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    if (channels.isEmpty) return EmptyState(icon: Icons.live_tv, message: l10n.noChannels);
+    if (channels.isEmpty) {
+      return EmptyState(
+        icon: Icons.live_tv,
+        message: query.categoryId == SpecialCategory.favorites ? l10n.noFavoriteChannels : l10n.noChannels,
+      );
+    }
     final playlistId = query.playlistId;
     final locked = ref.watch(lockedChannelsProvider(playlistId)).value ?? const {};
     final favs = ref.watch(favoriteIdsProvider(CategoryQuery(playlistId, ContentKind.live))).value ?? const {};

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -7,6 +8,7 @@ import 'package:flutter/foundation.dart';
 
 import '../db/database.dart';
 import '../epg/xmltv_parser.dart';
+import '../log/telemetry.dart';
 import '../m3u/m3u_parser.dart';
 import '../text/normalize.dart';
 import '../xtream/xtream_client.dart';
@@ -113,12 +115,14 @@ class PlaylistImporter {
       // held in memory together (a 2 GB box cannot afford three catalogues plus their companions).
       report(const ImportProgress(ImportStage.live));
       {
+        final stage = Stopwatch()..start();
         final cats = await client.liveCategories();
         final live = await client.liveStreams();
         report(ImportProgress(ImportStage.live, total: live.length));
+        final keepCategories = _logStage('live', cats.length, live.length, stage);
         await db.transaction(() async {
-          await db.clearPlaylistContent(p.id, kind: ContentKind.live);
-          await _insertCategories(p.id, ContentKind.live, cats);
+          await db.clearPlaylistContent(p.id, kind: ContentKind.live, clearCategories: !keepCategories);
+          if (!keepCategories) await _insertCategories(p.id, ContentKind.live, cats);
           await _batched(live, (chunk, offset) => db.batch((b) {
                 b.insertAll(db.channels, [
                   for (final (i, s) in chunk.indexed)
@@ -142,12 +146,14 @@ class PlaylistImporter {
 
       report(const ImportProgress(ImportStage.movies));
       {
+        final stage = Stopwatch()..start();
         final cats = await client.vodCategories();
         final vod = await client.vodStreams();
         report(ImportProgress(ImportStage.movies, total: vod.length));
+        final keepCategories = _logStage('vod', cats.length, vod.length, stage);
         await db.transaction(() async {
-          await db.clearPlaylistContent(p.id, kind: ContentKind.vod);
-          await _insertCategories(p.id, ContentKind.vod, cats);
+          await db.clearPlaylistContent(p.id, kind: ContentKind.vod, clearCategories: !keepCategories);
+          if (!keepCategories) await _insertCategories(p.id, ContentKind.vod, cats);
           await _batched(vod, (chunk, offset) => db.batch((b) {
                 b.insertAll(db.movies, [
                   for (final (i, m) in chunk.indexed)
@@ -171,12 +177,14 @@ class PlaylistImporter {
 
       report(const ImportProgress(ImportStage.series));
       {
+        final stage = Stopwatch()..start();
         final cats = await client.seriesCategories();
         final series = await client.series();
         report(ImportProgress(ImportStage.series, total: series.length));
+        final keepCategories = _logStage('series', cats.length, series.length, stage);
         await db.transaction(() async {
-          await db.clearPlaylistContent(p.id, kind: ContentKind.series);
-          await _insertCategories(p.id, ContentKind.series, cats);
+          await db.clearPlaylistContent(p.id, kind: ContentKind.series, clearCategories: !keepCategories);
+          if (!keepCategories) await _insertCategories(p.id, ContentKind.series, cats);
           await _batched(series, (chunk, offset) => db.batch((b) {
                 b.insertAll(db.seriesItems, [
                   for (final (i, s) in chunk.indexed)
@@ -445,6 +453,25 @@ class PlaylistImporter {
   }
 
   // ---- helpers ------------------------------------------------------------
+
+  /// Logs one Xtream stage (category and item counts, timing — no names, no URLs) and decides
+  /// whether the existing categories of this kind should be kept: [catCount] came back empty while
+  /// this same call did list items, which almost always means the categories endpoint hiccuped
+  /// rather than the catalogue genuinely having none (see `XtreamClient._categories`'s own retry).
+  bool _logStage(String kind, int catCount, int itemCount, Stopwatch stage) {
+    stage.stop();
+    final elapsedS = (stage.elapsedMilliseconds / 1000).toStringAsFixed(1);
+    Telemetry.breadcrumb('import', 'xtream $kind: $catCount categories, $itemCount items, $elapsedS s');
+    final keepCategories = catCount == 0 && itemCount > 0;
+    if (keepCategories) {
+      unawaited(Telemetry.capture(
+        'import',
+        'Xtream $kind: 0 categories for $itemCount items — keeping the existing ones',
+        fingerprint: ['import-empty-categories', kind],
+      ));
+    }
+    return keepCategories;
+  }
 
   Future<void> _insertCategories(String playlistId, ContentKind kind, List<XtreamCategory> cats) =>
       db.batch((b) => b.insertAll(db.categories, [

@@ -23,8 +23,21 @@ final streamResolverProvider = Provider<StreamResolver?>((ref) {
   return StreamResolver(p, ref.watch(settingsProvider));
 });
 
-Future<void> openPlayer(BuildContext context, PlaybackRequest request) =>
-    context.push(Routes.player, extra: request);
+DateTime? _lastPlayerPush;
+
+/// A held OK key repeats the activation, and playMovie/playEpisodes both await a DB read before
+/// this runs: two of those activations landing close together pushed two `/player` routes, each
+/// with its own mpv instance — its overlay controls briefly doubled up on screen (Sentry: reported
+/// from the app, VOD open). 700 ms is far longer than a double activation but short enough to never
+/// hold up an intentional next push (a different title tapped right after).
+Future<void> openPlayer(BuildContext context, PlaybackRequest request) {
+  final now = DateTime.now();
+  if (_lastPlayerPush != null && now.difference(_lastPlayerPush!) < const Duration(milliseconds: 700)) {
+    return Future.value();
+  }
+  _lastPlayerPush = now;
+  return context.push(Routes.player, extra: request);
+}
 
 /// Xtream panels store either a YouTube id or a full URL.
 Future<void> openTrailer(String trailer) {

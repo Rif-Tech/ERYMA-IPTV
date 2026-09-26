@@ -21,6 +21,8 @@ class PlayerMeasurePanel extends StatelessWidget {
 
   static String _n(double? v, [int digits = 2]) => v == null ? '?' : v.toStringAsFixed(digits);
 
+  static String _mbps(int? kbps) => kbps == null ? '?' : (kbps / 1000).toStringAsFixed(1);
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -39,7 +41,8 @@ class PlayerMeasurePanel extends StatelessWidget {
           (l10n.measureFrames, '${_n(s.contentFps)} · ${_n(s.decodedFps, 1)} · ${s.shownFps ?? '—'}'),
           (l10n.measureDrops, '${s.dropsVo} · ${s.dropsDecoder} · ${s.delayed}'),
           (l10n.measureSync, '${_n(s.avsyncMs, 0)} ms'),
-          (l10n.measureBuffer, '${_n(s.cacheSeconds, 1)} s · ${s.videoKbps == null ? '?' : (s.videoKbps! / 1000).toStringAsFixed(1)} Mb/s'),
+          (l10n.measureBuffer, '${_n(s.cacheSeconds, 1)} s / ${s.cacheMaxMb ?? '?'} MB · ${_n(s.pauseWait, 0)} s'),
+          (l10n.measureNetwork, '${_mbps(s.throughputKbps)} / ${_mbps(s.videoKbps)} Mb/s'),
         ];
         return Align(
           alignment: Alignment.topRight,
@@ -98,6 +101,52 @@ class PlayerSubtitles extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Discrete channel identity shown while zapping with Left/Right (live, controls hidden): number,
+/// logo and name, top-left, for 3 s — enough to confirm where a fast zap landed without pulling up
+/// the full transport controls. Never focusable: the D-pad stays on the zap keys throughout.
+class PlayerZapBanner extends StatelessWidget {
+  const PlayerZapBanner({super.key, required this.number, required this.title, this.logo});
+  final int number;
+  final String title;
+  final String? logo;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    final text = Theme.of(context).textTheme;
+    return IgnorePointer(
+      child: ExcludeFocus(
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(24, top + 24, 24, 0),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(10, 8, 20, 8),
+              decoration: BoxDecoration(color: const Color(0xCC000000), borderRadius: BorderRadius.circular(12)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 32,
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(color: const Color(0x33FFFFFF), borderRadius: BorderRadius.circular(6)),
+                    child: logo == null
+                        ? Center(child: Text('$number', style: text.labelSmall?.copyWith(color: Colors.white)))
+                        : AppImage(logo, fit: BoxFit.contain, icon: Icons.tv, decodeWidth: 140),
+                  ),
+                  const SizedBox(width: 10),
+                  Text('$number · $title', style: text.titleSmall?.copyWith(color: Colors.white)),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -342,42 +391,103 @@ class PlayerEpgLine extends ConsumerWidget {
   }
 }
 
-class PlayerTrackButton<T> extends StatelessWidget {
-  const PlayerTrackButton({
-    super.key,
-    required this.icon,
-    required this.tooltip,
-    required this.tracks,
-    required this.current,
-    required this.label,
-    required this.onSelected,
-  });
-  final IconData icon;
-  final String tooltip;
-  final List<T> tracks;
-  final T current;
-  final String Function(T) label;
-  final ValueChanged<T> onSelected;
+/// One row of a [PlayerChoiceMenu]: its label, whether it is the current value, and what selecting
+/// it does.
+class PlayerMenuOption {
+  const PlayerMenuOption({required this.label, required this.selected, required this.onSelect});
+  final String label;
+  final bool selected;
+  final VoidCallback onSelect;
+}
+
+/// Audio, subtitle and playback-speed picker, replacing `PopupMenuButton` for all three: Material
+/// 3 forced a focused `PopupMenuButton` icon to the theme's foreground colour, white on the
+/// button's own white focus background; its menu opened *over* the button, partly hiding it; and
+/// nothing in it was focused when it opened, so the first D-pad press moved to whatever directional
+/// traversal found next, not necessarily into the menu (Sentry: "sous-titres/piste/vitesse, le menu
+/// s'affiche un peu au-dessus du bouton" and FLUTTER-1E, focus lost right after one opened).
+///
+/// Anchored above [link]'s target with [CompositedTransformFollower] instead, autofocuses the
+/// current value. Back closes it — like every other in-player layer (the channel list, the
+/// overlay itself), that goes through the screen's own `PopScope`/`_onBack`, not a key handler
+/// here.
+class PlayerChoiceMenu extends StatelessWidget {
+  const PlayerChoiceMenu({super.key, required this.link, required this.title, required this.options, required this.onClose});
+  final LayerLink link;
+  final String title;
+  final List<PlayerMenuOption> options;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<T>(
-      tooltip: tooltip,
-      icon: Icon(icon),
-      onSelected: onSelected,
-      itemBuilder: (_) => [
-        for (final t in tracks)
-          PopupMenuItem(
-            value: t,
-            child: Row(
-              children: [
-                Icon(t == current ? Icons.check_rounded : null, size: 18),
-                const SizedBox(width: 8),
-                Text(label(t)),
-              ],
-            ),
+    final text = Theme.of(context).textTheme;
+    return CompositedTransformFollower(
+      link: link,
+      showWhenUnlinked: false,
+      targetAnchor: Alignment.topCenter,
+      followerAnchor: Alignment.bottomCenter,
+      offset: const Offset(0, -8),
+      child: FocusScope(
+        autofocus: true,
+        child: Container(
+          width: 280,
+          constraints: const BoxConstraints(maxHeight: 320),
+          decoration: BoxDecoration(
+            color: const Color(0xF20A0A0A),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0x33FFFFFF)),
+            boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 4))],
           ),
-      ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Text(title, style: text.labelMedium?.copyWith(color: const Color(0xB3FFFFFF))),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  children: [for (final o in options) _PlayerMenuTile(option: o, onClose: onClose)],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerMenuTile extends StatelessWidget {
+  const _PlayerMenuTile({required this.option, required this.onClose});
+  final PlayerMenuOption option;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        autofocus: option.selected,
+        focusColor: const Color(0x33FFFFFF),
+        hoverColor: const Color(0x1AFFFFFF),
+        onTap: () {
+          option.onSelect();
+          onClose();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              SizedBox(width: 20, child: option.selected ? const Icon(Icons.check_rounded, size: 18, color: Colors.white) : null),
+              const SizedBox(width: 8),
+              Expanded(child: Text(option.label, style: const TextStyle(color: Colors.white))),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

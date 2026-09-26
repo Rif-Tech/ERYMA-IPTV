@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/config.dart';
+import 'telemetry_budget.dart';
 
 /// Sentry-side diagnostics: breadcrumbs (the trail of D-pad keys, screens, player and DNS steps
 /// leading up to a problem), throttled events for problems worth a notification, and Sentry Logs.
@@ -16,6 +17,12 @@ import '../../app/config.dart';
 /// URLs carry the username and password in their path or query). Titles are never passed here.
 abstract final class Telemetry {
   static bool get enabled => AppConfig.sentryDsn.isNotEmpty;
+
+  /// Set once at start-up ([main.dart]), once `SharedPreferences` is ready: backs the daily send
+  /// budget below. `capture` called before this is set (breadcrumbs and `trace` never need it)
+  /// simply skips budget enforcement rather than block or throw.
+  static TelemetryBudget? _budget;
+  static void init(SharedPreferences prefs) => _budget = TelemetryBudget(prefs);
 
   /// Applied to every [SentryFlutter.init] (see main.dart).
   static void configure(SentryFlutterOptions options) {
@@ -29,6 +36,12 @@ abstract final class Telemetry {
     // Layout only (rects, widget keys), never on-screen text: key to diagnosing clipped layouts.
     // ignore: experimental_member_use
     options.attachViewHierarchy = true;
+    // A view hierarchy runs ~800 KB: on the free plan's 1 GB attachment quota, joining it to every
+    // one of the diagnostics below (dpad-stuck, degraded playback…) would empty it in a handful of
+    // sessions. Only layout events — what it exists to diagnose — and native crashes get one.
+    // ignore: experimental_member_use
+    options.beforeCaptureViewHierarchy = (event, hint, debounce) async =>
+        event.tags?['category'] == 'layout' || (event.exceptions?.isNotEmpty ?? false);
     // Screenshots do show playlist content (titles, posters): opt-in per build.
     options.attachScreenshot = AppConfig.sentryScreenshots;
     options.screenshotQuality = SentryScreenshotQuality.low;
@@ -108,12 +121,15 @@ abstract final class Telemetry {
 
   // Also sent as Sentry Logs, so a whole session can be searched there (breadcrumbs only travel
   // with an event, 200 at most). `dpad` logs its own, richer line once the focus has settled.
-  static const _loggedCategories = {'navigation', 'player', 'dns', 'layout', 'mpv', 'scroll', 'focus'};
+  static const _loggedCategories = {'navigation', 'player', 'dns', 'layout', 'mpv', 'scroll', 'focus', 'import', 'categories'};
 
   static void breadcrumb(String category, String message, {Map<String, Object?>? data, SentryLevel level = SentryLevel.info, String? type}) {
     if (!enabled) return;
     unawaited(Sentry.addBreadcrumb(Breadcrumb(category: category, message: message, data: data, level: level, type: type)));
-    if (_loggedCategories.contains(category)) trace(category, message, {...?data, 'level': level.name});
+    // Breadcrumbs are cheap and capped at 200 by the SDK; Sentry Logs count against the plan's own
+    // quota. `debug` marks the high-frequency, low-value ones (periodic stats, seeks…) that are
+    // only ever worth reading as part of an event's trail, never searched for on their own.
+    if (level != SentryLevel.debug && _loggedCategories.contains(category)) trace(category, message, {...?data, 'level': level.name});
   }
 
   /// Structured block shown on every later event (`playback`, `dns`, `media`…); null clears it.
@@ -151,9 +167,24 @@ abstract final class Telemetry {
 
   static final _lastSent = <String, DateTime>{};
 
+  // ---- Daily send budget -----------------------------------------------
+  //
+  // A handful of testers on the free Sentry plan (5 000 events/month) must never be able to flood
+  // it: on top of the per-fingerprint [throttle] above, [TelemetryBudget] resets a budget of its
+  // own every day, persisted so it survives a restart. Diagnostics
+  // (dpad/layout/scroll/categories/import) get 1 send per fingerprint per day; logged errors get
+  // 3; both count against a shared 15/day total. Measurements ("Mesures", user-triggered) have
+  // their own, separate 10/day budget instead, since they are opt-in and already rare. Crashes
+  // ([exception]) and reports ([feedback]) are never throttled or budgeted — a plan can pin its
+  // rules to only govern automatic diagnostics.
+  static const _dailyTotalCap = 15;
+  static const _dailyMeasurementCap = 10;
+
   /// Sends an event (with the breadcrumb trail, tags and contexts). The same [fingerprint]
   /// (default: category + message) is sent at most once per [throttle], so a problem repeating on
-  /// every frame or every HLS segment cannot flood the quota.
+  /// every frame or every HLS segment cannot flood the quota — then the daily budget above applies.
+  /// [measurement] is a user-triggered "Mesures" report: its own budget, no per-fingerprint cap,
+  /// [errorBudget] widens a diagnostic's 1/day cap to 3 (an actual logged error, see [log]).
   static Future<SentryId?> capture(
     String category,
     String message, {
@@ -162,19 +193,31 @@ abstract final class Telemetry {
     List<String>? fingerprint,
     Duration throttle = const Duration(minutes: 5),
     List<SentryAttachment> attachments = const [],
+    bool measurement = false,
+    bool errorBudget = false,
   }) async {
     if (!enabled) return null;
     final key = (fingerprint ?? [category, message]).join('|');
     final now = DateTime.now();
     final last = _lastSent[key];
     if (last != null && now.difference(last) < throttle) return null;
+    final budget = _budget;
+    final allowed = budget == null ||
+        (measurement
+            ? budget.allows(key, totalKey: 'measure_total', totalCap: _dailyMeasurementCap)
+            : budget.allows(key, cap: errorBudget ? 3 : 1, totalKey: 'total', totalCap: _dailyTotalCap));
+    if (!allowed) return null;
     _lastSent[key] = now;
+    final suppressed = budget?.takeSuppressed() ?? 0;
     return Sentry.captureMessage(
       message,
       level: level,
       withScope: (scope) async {
         await scope.setTag('category', category);
-        if (data != null) await scope.setContexts('details', _scrubValue(data));
+        if (data != null || suppressed > 0) {
+          final details = <String, Object?>{...?data, if (suppressed > 0) 'budget.suppressed': suppressed};
+          await scope.setContexts('details', _scrubValue(details));
+        }
         if (fingerprint != null) scope.fingerprint = fingerprint;
         for (final attachment in attachments) {
           scope.addAttachment(attachment);
@@ -183,30 +226,25 @@ abstract final class Telemetry {
     );
   }
 
-  /// A user report (Sentry → User Feedback, not an issue), with the tags and contexts of the
-  /// moment it was sent. Sentry leaves breadcrumbs out of feedback events: the trail (remote keys,
-  /// screens, player) travels as a `breadcrumbs.txt` attachment instead.
+  /// A user report ("Signaler un problème"), as a plain event rather than Sentry's separate User
+  /// Feedback API: that API needs a paid plan to even show up, and drops breadcrumbs from the
+  /// event, which this app carried around as a `breadcrumbs.txt` attachment instead. A regular
+  /// `captureMessage` gets the trail for free (native to every event) and works on every plan; a
+  /// timestamp-unique [fingerprint] keeps each report its own issue instead of merging into one
+  /// (every report shares the same call site, so Sentry's default stack-based grouping would
+  /// otherwise fold them together) — the point being an email alert per report, not per user.
   static Future<SentryId?> feedback(String message, {Map<String, Object?>? data}) async {
     if (!enabled) return null;
-    return Sentry.captureFeedback(
-      SentryFeedback(message: scrub(message)),
+    return Sentry.captureMessage(
+      scrub(message),
+      level: SentryLevel.warning,
       withScope: (scope) async {
         await scope.setTag('category', 'user_report');
         if (data != null) await scope.setContexts('details', _scrubValue(data));
-        final trail = breadcrumbTrail(scope.breadcrumbs);
-        if (trail.isNotEmpty) {
-          scope.addAttachment(SentryAttachment.fromUint8List(Uint8List.fromList(utf8.encode(trail)), 'breadcrumbs.txt', contentType: 'text/plain'));
-        }
+        scope.fingerprint = ['user-report', DateTime.now().toIso8601String()];
       },
     );
   }
-
-  /// One line per breadcrumb, oldest first: `time [category] message {data}`.
-  @visibleForTesting
-  static String breadcrumbTrail(Iterable<Breadcrumb> crumbs) => crumbs
-      .map((b) => '${b.timestamp.toUtc().toIso8601String()} ${b.level?.name ?? 'info'} [${b.category ?? '-'}] ${b.message ?? ''}'
-          '${b.data == null || b.data!.isEmpty ? '' : ' ${jsonEncode(_scrubValue(b.data))}'}')
-      .join('\n');
 
   static void exception(Object error, StackTrace? stack, {required String category, Map<String, Object?>? data}) {
     if (!enabled) return;
@@ -262,7 +300,7 @@ abstract final class Telemetry {
           _ => logger.info(message, attributes: attributes),
         }));
     if (level == 'error' || level == 'warn') {
-      unawaited(capture(category, message, level: sentryLevel, data: context, fingerprint: ['log', category, messageKind(message)]));
+      unawaited(capture(category, message, level: sentryLevel, data: context, fingerprint: ['log', category, messageKind(message)], errorBudget: true));
     }
   }
 

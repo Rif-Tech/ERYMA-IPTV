@@ -237,16 +237,41 @@ Future<bool> isAndroidEmulator() async {
   }
 }
 
-/// 32-bit-only or old Android devices: the class of hardware where every effect must be cheap.
+/// 32-bit-only, old or 2 GB Android devices: the class of hardware where every effect must be
+/// cheap. (device_info_plus's `isLowRamDevice` only says whether memory is low *right now*.)
 Future<bool> isLowEndDevice() async {
   if (kIsWeb || !Platform.isAndroid) return false;
   try {
     final android = await DeviceInfoPlugin().androidInfo;
-    return android.supported64BitAbis.isEmpty || android.version.sdkInt < 28 || android.isLowRamDevice;
+    final ramMb = android.physicalRamSize;
+    return android.supported64BitAbis.isEmpty || android.version.sdkInt < 28 || (ramMb > 0 && ramMb < 2200);
   } on PlatformException {
     return false;
   }
 }
+
+/// Total RAM and the RAM free at start-up, in MB (nulls off Android): sizes the player's cache.
+Future<DeviceMemory> deviceMemory() async {
+  if (kIsWeb || !Platform.isAndroid) return const DeviceMemory();
+  try {
+    final android = await DeviceInfoPlugin().androidInfo;
+    return DeviceMemory(
+      totalMb: android.physicalRamSize > 0 ? android.physicalRamSize : null,
+      availMb: android.availableRamSize > 0 ? android.availableRamSize : null,
+    );
+  } on PlatformException {
+    return const DeviceMemory();
+  }
+}
+
+class DeviceMemory {
+  const DeviceMemory({this.totalMb, this.availMb});
+  final int? totalMb;
+  final int? availMb;
+}
+
+/// Read at start-up (main.dart).
+final deviceMemoryProvider = Provider<DeviceMemory>((ref) => const DeviceMemory());
 
 final deviceIdentityProvider = FutureProvider<DeviceIdentity>((ref) {
   return DeviceIdentityService(prefs: ref.watch(sharedPreferencesProvider)).load();

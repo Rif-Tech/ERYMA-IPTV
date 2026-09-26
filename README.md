@@ -75,6 +75,12 @@ Réglages → Lecture propose aussi :
   - « Intégrée » dessine l'image dans Flutter.
 - **Adapter la fréquence de l'écran** (TV, désactivé par défaut) : pendant la lecture, la TV passe à une fréquence multiple de la cadence du contenu (50 Hz pour une chaîne à 25/50 i/s, 23,976 Hz pour un film). L'écran noircit 1 à 2 s à chaque changement. Le réglage est grisé quand l'écran ne propose qu'une fréquence (cas de la Mi TV box : 59,94 Hz seulement).
 
+Le tampon de lecture s'adapte automatiquement à la RAM de l'appareil (32 Mo sur un appareil à 1 Go, jusqu'à 192 Mo au-delà de 4,5 Go) et au débit du serveur : après une coupure, le délai avant reprise s'allonge (jusqu'à 6 s en direct, 12 s en VOD) si le réseau reçoit moins vite que le débit du flux, puis redescend après quelques minutes sans nouvel incident. Aucun réglage utilisateur n'existe pour le tampon.
+
+Sur une chaîne, ←/→ zappent directement (un bandeau discret montre le numéro et le nom, sans afficher les boutons du lecteur) ; ↑/↓ affichent les commandes. Maintenir OK sur une chaîne (listes Direct, « Mes groupes ») ouvre son menu : favori, verrouillage parental, ajout à un groupe — le même appui long ouvre aussi le menu d'une playlist ou lance un film depuis sa vignette. Une étoile dans la barre du lecteur en direct fait aussi office de raccourci favori.
+
 Dans le lecteur, le bouton **Mesures** affiche en direct le format, les couleurs, la cadence image/écran, les images perdues, la synchro A/V et le tampon. Un second appui envoie le rapport à Sentry : résumé plus détail seconde par seconde en CSV.
+
+« Signaler un problème » (Réglages) envoie un événement Sentry normal (pas l'API User Feedback, indisponible sur le plan gratuit) avec les 200 derniers breadcrumbs déjà joints nativement.
 
 Voir [docs/api.md](docs/api.md) pour les endpoints et [docs/apk-analysis.md](docs/apk-analysis.md) pour l'analyse de l'application d'origine.

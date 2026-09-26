@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/config.dart';
+import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
@@ -25,28 +26,40 @@ class ChangePlaylistScreen extends ConsumerWidget {
     final activeId = ref.watch(settingsProvider.select((s) => s.activePlaylistId));
     final syncing = ref.watch(deviceSessionProvider).isLoading;
     final profile = ref.watch(activeProfileProvider);
+    final isTv = ref.watch(isTelevisionProvider);
+    // Reached either by pushing from Settings (poppable) or by go() as the app's start screen
+    // (root, nothing to pop to): the hardware Back key must fall back the same way the on-screen
+    // button below does, or it falls through to Android's own back handling and exits the app.
+    final canPop = context.canPop();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(profile == null ? l10n.myPlaylists : '${l10n.myPlaylists} · ${profile.name}'),
-        leading: activeId != null
-            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.canPop() ? context.pop() : context.go(Routes.home))
-            : null,
-        actions: [
-          IconButton(
-            tooltip: l10n.refreshPlaylists,
-            icon: syncing
-                ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.sync),
-            onPressed: syncing ? null : () => ref.read(deviceSessionProvider.notifier).refresh(),
-          ),
-          IconButton(
-            tooltip: l10n.addPlaylistTitle,
-            icon: const Icon(Icons.add),
-            onPressed: () => context.push(Routes.noPlaylist),
-          ),
-        ],
-      ),
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && activeId != null) context.go(Routes.home);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(profile == null ? l10n.myPlaylists : '${l10n.myPlaylists} · ${profile.name}'),
+          // TV: the remote's own Back key is the only way back everywhere in the app (the PopScope
+          // above still gives it somewhere useful to go when this screen has nothing to pop to).
+          leading: activeId != null && !isTv
+              ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => canPop ? context.pop() : context.go(Routes.home))
+              : null,
+          actions: [
+            IconButton(
+              tooltip: l10n.refreshPlaylists,
+              icon: syncing
+                  ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.sync),
+              onPressed: syncing ? null : () => ref.read(deviceSessionProvider.notifier).refresh(),
+            ),
+            IconButton(
+              tooltip: l10n.addPlaylistTitle,
+              icon: const Icon(Icons.add),
+              onPressed: () => context.push(Routes.noPlaylist),
+            ),
+          ],
+        ),
       body: AsyncView(
         value: playlists,
         builder: (list) {
@@ -128,6 +141,7 @@ class ChangePlaylistScreen extends ConsumerWidget {
             ),
           );
         },
+      ),
       ),
     );
   }

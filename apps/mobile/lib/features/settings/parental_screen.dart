@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/responsive.dart';
 import '../../core/db/database.dart';
 import '../../core/settings/settings.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -19,7 +20,8 @@ class ParentalScreen extends ConsumerWidget {
     final playlist = ref.watch(activePlaylistProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.parentalControl)),
+      // TV: the remote's own Back key is the only way back everywhere in the app.
+      appBar: AppBar(title: Text(l10n.parentalControl), automaticallyImplyLeading: !ref.watch(isTelevisionProvider)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -54,8 +56,8 @@ class ParentalScreen extends ConsumerWidget {
   }
 }
 
-final _allCategoriesProvider = FutureProvider.family<List<ContentCategory>, CategoryQuery>((ref, q) {
-  return ref.watch(databaseProvider).getCategories(q.playlistId, q.kind);
+final _allCategoriesProvider = StreamProvider.family<List<ContentCategory>, CategoryQuery>((ref, q) {
+  return ref.watch(databaseProvider).watchCategories(q.playlistId, q.kind);
 });
 
 class _HiddenCategories extends ConsumerWidget {

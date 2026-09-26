@@ -103,6 +103,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noFavorites => 'Nothing in favorites yet.';
 
   @override
+  String get noFavoriteChannels =>
+      'No favourite channels yet. Hold OK on a channel, or press ★ in the player.';
+
+  @override
   String get noRecent => 'Nothing watched yet.';
 
   @override
@@ -130,6 +134,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String resumeFrom(String time) {
     return 'Resume from $time';
+  }
+
+  @override
+  String resumeEpisodeAt(int season, int episode, String time) {
+    return 'Resume · S$season E$episode · $time';
   }
 
   @override
@@ -700,7 +709,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get measureSync => 'A/V sync';
 
   @override
-  String get measureBuffer => 'Buffer · bitrate';
+  String get measureBuffer => 'Buffer (ahead / cap · resume)';
+
+  @override
+  String get measureNetwork => 'Bitrate (received / stream)';
 
   @override
   String get qualityNotSupportedLowEnd =>

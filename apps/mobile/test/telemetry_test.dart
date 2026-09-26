@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiptv/core/log/telemetry.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
 
 void main() {
   group('Telemetry.scrub', () {
@@ -38,22 +37,6 @@ void main() {
     expect(Telemetry.messageKind('open failed on direct: http://p.example.com:8080/live/u/p/42.ts (code 403)'),
         'open failed on direct: http://p.example.com:#/….ts (code #)');
     expect(Telemetry.messageKind('x' * 300), hasLength(120));
-  });
-
-  test('breadcrumbTrail: one readable line per breadcrumb, URLs scrubbed', () {
-    final trail = Telemetry.breadcrumbTrail([
-      Breadcrumb(timestamp: DateTime.utc(2026, 9, 26, 10), category: 'dpad', message: 'Arrow Down: a → b'),
-      Breadcrumb(
-        timestamp: DateTime.utc(2026, 9, 26, 10, 0, 1),
-        category: 'player',
-        message: 'open',
-        data: {'url': 'http://p.example.com/live/u/p/1.ts'},
-      ),
-    ]);
-    expect(trail.split('\n'), [
-      '2026-09-26T10:00:00.000Z info [dpad] Arrow Down: a → b',
-      '2026-09-26T10:00:01.000Z info [player] open {"url":"http://p.example.com/….ts"}',
-    ]);
   });
 
   test('hostOf / extensionOf never expose the path', () {

@@ -13,6 +13,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../core/db/database.dart';
+import '../../core/device/device_identity.dart';
 import '../../core/log/app_logger.dart';
 import '../../core/log/remote_key_tracker.dart';
 import '../../core/log/telemetry.dart';
@@ -25,7 +26,10 @@ import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
+import '../content/metadata_providers.dart';
 import '../playlists/playlists_provider.dart';
+import 'adaptive_buffer.dart';
+import 'buffer_policy.dart';
 import 'decode_policy.dart';
 import 'mpv_tuning.dart';
 import 'native_video_surface.dart';
@@ -53,6 +57,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   final _surfaceReady = Completer<void>();
   Future<void> _surfaceOps = Future.value();
   late final PlaybackMeasure _measure;
+  late final AdaptiveBuffer _buffer;
   // The display mode was switched for this playback ([AppSettings.matchFrameRate]).
   bool _frameRateMatched = false;
   int? _frameRateItem;
@@ -61,7 +66,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   late int _index;
   final _subs = <StreamSubscription>[];
 
-  bool _overlay = true;
+  // True from the first frame for the built-in output. Native output starts hidden instead: set in
+  // initState once _nativeOutput is known, and shown by the width listener below on the first
+  // frame (Hybrid Composition briefly paints both the opaque overlay and the SurfaceView swapping
+  // in otherwise — reported from the app as the transport controls doubling up on VOD open).
+  late bool _overlay;
   bool _showList = false;
   String? _error;
   Tracks _tracks = const Tracks();
@@ -108,11 +117,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _index = widget.request.startIndex;
     _pendingStartMs = widget.request.startPositionMs;
     _nativeOutput = usesNativeOutput(ref.read(settingsProvider).videoOutput, isAndroid: Platform.isAndroid, isTv: _isTv) && !widget.request.forceFlutterOutput;
+    _overlay = !_nativeOutput;
+    final memory = ref.read(deviceMemoryProvider);
+    // The VOD plan (the larger one) sizes media_kit's own allocation, done once at construction;
+    // AdaptiveBuffer.prepare() then sets the real per-stream mpv properties before every open().
+    final initialPlan = bufferPlan(ramMb: memory.totalMb, availMb: memory.availMb, live: false);
     _player = Player(
       configuration: PlayerConfiguration(
         title: 'MultIPTV',
-        // Demuxer RAM cache; 32 MB is a noticeable slice of a 2 GB box shared with the OS.
-        bufferSize: (ref.read(isLowEndDeviceProvider) ? 16 : 32) * 1024 * 1024,
+        bufferSize: initialPlan.maxBytes,
         // Warnings carry the decoder story (hwdec rejected, profile unsupported): kept as Sentry
         // breadcrumbs when it is configured.
         logLevel: kDebugMode || Telemetry.enabled ? MPVLogLevel.warn : MPVLogLevel.error,
@@ -120,6 +133,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
         vo: _nativeOutput ? 'null' : null,
       ),
     );
+    _buffer = AdaptiveBuffer(_player, ramMb: memory.totalMb, availMb: memory.availMb);
     // Decode path ladder: direct (no copy) → hardware copy → software. Failures are remembered per
     // install so `auto` does not retry a path this box already rejected.
     _path = widget.request.decodePath ?? _defaultPath();
@@ -179,6 +193,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       _player.stream.duration.listen((d) => _duration.value = d),
       _player.stream.width.listen((w) {
         safeSet(() => _videoWidth = w);
+        // Native output only ever starts with the overlay hidden (see _overlay's declaration): the
+        // first frame is what reveals it.
+        if ((w ?? 0) > 0 && _nativeOutput && !_overlay) _showOverlay();
         if ((w ?? 0) > 0 && _frameRateItem != _index) {
           _frameRateItem = _index;
           // container-fps settles once the first frames are out.
@@ -206,16 +223,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     }
     _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
     _open();
-    // `_overlay` starts true (the controls show briefly on launch), so unlike every later call,
-    // `_showOverlay()` never runs its "was hidden" branch here and never focuses Play — nothing
-    // owns the D-pad yet, which is why the on-launch controls don't respond until they've been
-    // hidden and re-shown once. Focus it explicitly for this first display.
-    if (_isTv) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _playFocus.requestFocus();
-      });
+    if (_overlay) {
+      // `_overlay` starts true off the built-in output (the controls show briefly on launch), so
+      // unlike every later call, `_showOverlay()` never runs its "was hidden" branch here and
+      // never focuses Play — nothing owns the D-pad yet, which is why the on-launch controls
+      // don't respond until they've been hidden and re-shown once. Focus it explicitly for this
+      // first display.
+      if (_isTv) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _playFocus.requestFocus();
+        });
+      }
+      _scheduleHide();
     }
-    _scheduleHide();
+    // Native output: _overlay stays false (nothing to hide yet) until the width listener above
+    // shows it on the first frame, which arms its own hide timer and TV focus.
   }
 
   @override
@@ -224,6 +246,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _hideTimer?.cancel();
     _saveTimer?.cancel();
     _seekCommitTimer?.cancel();
+    _zapCommitTimer?.cancel();
+    _zapHideTimer?.cancel();
     _watchdog?.cancel();
     _decoderCheck?.cancel();
     _transientCheck?.cancel();
@@ -236,8 +260,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _listToggleFocus.dispose();
     _replayFocus.dispose();
     _forwardFocus.dispose();
+    _favoriteFocus.dispose();
+    _audioFocus.dispose();
+    _subtitleFocus.dispose();
+    _speedFocus.dispose();
     _saveProgress(flush: true);
     _telemetry.dispose(_closeReason);
+    _buffer.dispose();
     // A measurement still running is sent (from its samples: mpv is not read again).
     if (_measure.active) {
       unawaited(_measure.stop(reason: _closeReason).whenComplete(_measure.dispose));
@@ -302,6 +331,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     await _tuned;
     if (_nativeOutput && !await _waitForSurface()) return;
     if (!mounted) return;
+    await _buffer.prepare(live: _isLive);
     _telemetry.opened(_item, _path, index: _index, total: widget.request.items.length, startMs: start, output: _nativeOutput ? 'native' : 'flutter');
     try {
       await _player.open(
@@ -340,6 +370,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   final _listToggleFocus = TraceTag.name(FocusNode(debugLabel: 'list-toggle'), 'player-list-toggle');
   final _replayFocus = TraceTag.name(FocusNode(debugLabel: 'replay'), 'player-replay');
   final _forwardFocus = TraceTag.name(FocusNode(debugLabel: 'forward'), 'player-forward');
+  final _favoriteFocus = TraceTag.name(FocusNode(debugLabel: 'favorite'), 'player-favorite');
+
+  // ---- Audio/subtitle/speed menus (PlayerChoiceMenu) ----------------------
+  final _audioMenuLink = LayerLink();
+  final _subtitleMenuLink = LayerLink();
+  final _speedMenuLink = LayerLink();
+  final _audioFocus = TraceTag.name(FocusNode(debugLabel: 'audio'), 'player-audio');
+  final _subtitleFocus = TraceTag.name(FocusNode(debugLabel: 'subtitle'), 'player-subtitle');
+  final _speedFocus = TraceTag.name(FocusNode(debugLabel: 'speed'), 'player-speed');
+  LayerLink? _menuLink;
+  String? _menuTitle;
+  List<PlayerMenuOption>? _menuOptions;
+  FocusNode? _menuReturnFocus;
+
+  void _openMenu(LayerLink link, FocusNode returnFocus, String title, List<PlayerMenuOption> options) {
+    _hideTimer?.cancel();
+    setState(() {
+      _menuLink = link;
+      _menuTitle = title;
+      _menuOptions = options;
+      _menuReturnFocus = returnFocus;
+    });
+  }
+
+  void _closeMenu() {
+    final returnFocus = _menuReturnFocus;
+    setState(() {
+      _menuLink = null;
+      _menuTitle = null;
+      _menuOptions = null;
+      _menuReturnFocus = null;
+    });
+    returnFocus?.requestFocus();
+    _scheduleHide();
+  }
 
   DecodePath _defaultPath() => defaultDecodePath(
         decoder: ref.read(settingsProvider).videoDecoder,
@@ -606,7 +671,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     }
   }
 
-  void _goTo(int index) {
+  void _goTo(int index, {bool overlay = true}) {
     if (index < 0 || index >= widget.request.items.length) return;
     _saveProgress();
     setState(() {
@@ -614,11 +679,44 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       _showList = false;
     });
     _open();
-    _showOverlay();
+    if (overlay) _showOverlay();
   }
 
   void _next() => _goTo(_index + 1 < widget.request.items.length ? _index + 1 : (_isLive ? 0 : _index));
   void _previous() => _goTo(_index > 0 ? _index - 1 : (_isLive ? widget.request.items.length - 1 : 0));
+
+  // ---- Zapping (live, controls hidden) ------------------------------------
+
+  /// Target while a Left/Right (or CH±) zap is in flight; null once its banner has faded. Kept
+  /// separate from [_index] so a burst of presses only ever opens the channel the user settles on.
+  int? _zapTarget;
+  Timer? _zapCommitTimer;
+  Timer? _zapHideTimer;
+
+  PlayableItem? get _zapItem => _zapTarget == null ? null : widget.request.items[_zapTarget!];
+
+  /// Moves the on-screen target immediately (so a fast zap always shows the next name), but only
+  /// opens the stream 350 ms after the last press: chaining five taps must not open five streams.
+  /// A key held down repeats this call, so release is what finally opens it.
+  void _zap(int delta) {
+    final total = widget.request.items.length;
+    if (total <= 1) return;
+    final base = _zapTarget ?? _index;
+    setState(() => _zapTarget = (base + delta) % total);
+    _zapCommitTimer?.cancel();
+    _zapCommitTimer = Timer(_seekCommitDelay, _commitZap);
+    _zapHideTimer?.cancel();
+    _zapHideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _zapTarget = null);
+    });
+  }
+
+  void _commitZap() {
+    _zapCommitTimer?.cancel();
+    final target = _zapTarget;
+    if (target == null || target == _index) return;
+    _goTo(target, overlay: false);
+  }
 
   void _showOverlay() {
     if (!_overlay) {
@@ -680,6 +778,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     if (_pendingSeek.value == null) return;
     final target = _position.value;
     _telemetry.seeked(target);
+    _buffer.seeked();
     await _player.seek(target);
     _pendingSeek.value = null;
     _seekHold = null;
@@ -711,6 +810,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   }
 
   KeyEventResult _handleKey(KeyEvent event) {
+    // A choice menu (audio/subtitle/speed) owns the D-pad while it's open: its own FocusScope
+    // handles Back, and everything else (Up/Down between its rows, Select) is left to default
+    // traversal — none of the overlay/zap/seek logic below must run, and above all the hide timer
+    // must not be touched (it was suspended when the menu opened, matching every other list here).
+    if (_menuOptions != null) return KeyEventResult.ignored;
     // Self-heal a lost focus instead of leaving the D-pad "stuck": a button's own rebuild (e.g.
     // skip_next's ValueListenableBuilder rebuilding after _next() zaps the channel while it was
     // focused) can leave primaryFocus null, with nothing left to receive the next key event's
@@ -752,18 +856,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
 
     // Overlay visible + Up: route to a specific button instead of Flutter's default geometric
     // traversal, which is unpredictable across this row (transport pill, progress bar, top row).
+    // On TV there is no back button to land on (see _buildOverlay): the top-right button (★, or
+    // the channel list toggle) stands in for live; VOD's progress bar simply stays put.
     if (_overlay && key == LogicalKeyboardKey.arrowUp) {
       final current = FocusManager.instance.primaryFocus;
       FocusNode? target;
       if (_isLive) {
         if (current == _playFocus || current == _prevFocus) {
-          target = _backFocus;
+          target = _isTv ? (_playlistId != null ? _favoriteFocus : _listToggleFocus) : _backFocus;
         } else if (current == _nextFocus) {
           target = _listToggleFocus;
         }
       } else {
         if (current == _progressFocus) {
-          target = _backFocus;
+          target = _isTv ? null : _backFocus;
         } else if (current == _playFocus || current == _prevFocus || current == _replayFocus || current == _forwardFocus || current == _nextFocus) {
           target = _progressFocus;
         }
@@ -784,13 +890,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     // CH+/CH- zap regardless of the D-pad remap below, matching a physical remote's dedicated keys.
     if (key == LogicalKeyboardKey.channelUp || key == LogicalKeyboardKey.channelDown) {
       if (_isLive && !_overlay) {
-        key == LogicalKeyboardKey.channelUp ? _previous() : _next();
+        _zap(key == LogicalKeyboardKey.channelUp ? -1 : 1);
         return KeyEventResult.handled;
       }
     } else if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) {
-      // Live, hidden overlay: left/right zap within the current category's list (wraps at the ends).
+      // Live, hidden overlay: left/right zap within the current category's list (wraps at the
+      // ends), a debounced banner standing in for the full controls (see _zap).
       if (_isLive && !_overlay) {
-        key == LogicalKeyboardKey.arrowLeft ? _previous() : _next();
+        _zap(key == LogicalKeyboardKey.arrowLeft ? -1 : 1);
         return KeyEventResult.handled;
       }
     } else if ((key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) && !_overlay) {
@@ -817,6 +924,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   }
 
   Future<bool> _onBack() async {
+    if (_menuOptions != null) {
+      _closeMenu();
+      return false;
+    }
     if (_showList) {
       setState(() => _showList = false);
       return false;
@@ -924,6 +1035,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                     child: ExcludeFocus(excluding: !_overlay, child: _buildOverlay(context, l10n, settings)),
                   ),
                 ),
+                if (!_overlay && _zapItem != null)
+                  PlayerZapBanner(number: _zapTarget! + 1, title: _zapItem!.title, logo: _zapItem!.logo),
+                if (_menuOptions != null)
+                  // Align only loosens the tight constraints StackFit.expand would otherwise force
+                  // on it; the actual position comes from CompositedTransformFollower (the link's
+                  // target is the button that opened it).
+                  Positioned.fill(
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: PlayerChoiceMenu(link: _menuLink!, title: _menuTitle!, options: _menuOptions!, onClose: _closeMenu),
+                    ),
+                  ),
                 if (_showList) _buildList(context),
                 IgnorePointer(child: PlayerMeasurePanel(snapshot: _measure.snapshot)),
               ],
@@ -950,8 +1073,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
           padding: EdgeInsets.fromLTRB(gutter - 8, top + 12, gutter, 40),
           child: Row(
             children: [
-              IconButton(focusNode: _backFocus, icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
-              const SizedBox(width: 8),
+              // TV: the remote's own Back key is the only way back (see _onBack), matching every
+              // other screen — an on-screen button there is redundant chrome that's easy to miss
+              // and, focused, hard to read at a glance from the sofa.
+              if (!_isTv) ...[
+                IconButton(focusNode: _backFocus, icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
+                const SizedBox(width: 8),
+              ],
               if (item.logo != null)
                 Container(
                   width: 64,
@@ -974,6 +1102,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
               ),
               if (_isLive) const Padding(padding: EdgeInsets.only(left: 8), child: MetaBadge('LIVE', filled: true)),
               if (res != null) Padding(padding: const EdgeInsets.only(left: 8), child: MetaBadge(res)),
+              if (_isLive && _playlistId != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  // A remote has no long-press-friendly gesture for the channel-list menu, so the
+                  // player is also a direct entry point to favorite the channel being watched.
+                  child: Builder(builder: (_) {
+                    final isFav = ref.watch(isFavoriteProvider((_playlistId, ContentKind.live, item.id))).value ?? false;
+                    return IconButton(
+                      focusNode: _favoriteFocus,
+                      tooltip: isFav ? l10n.removeFromFavorites : l10n.addToFavorites,
+                      isSelected: isFav,
+                      icon: const Icon(Icons.star_border_rounded),
+                      selectedIcon: const Icon(Icons.star_rounded),
+                      onPressed: () {
+                        ref.read(databaseProvider).toggleFavorite(_playlistId, ContentKind.live, item.id);
+                        _showOverlay();
+                      },
+                    );
+                  }),
+                ),
               if (_isLive)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
@@ -1078,35 +1226,65 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
                                 ),
                               ),
                             if (_tracks.audio.length > 2)
-                              PlayerTrackButton<AudioTrack>(
-                                icon: Icons.audiotrack_rounded,
-                                tooltip: l10n.audioTrack,
-                                tracks: _tracks.audio.where((t) => t.id != 'auto').toList(),
-                                current: _track.audio,
-                                label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
-                                onSelected: (t) {
-                                  _player.setAudioTrack(t);
-                                  _showOverlay();
-                                },
+                              CompositedTransformTarget(
+                                link: _audioMenuLink,
+                                child: IconButton(
+                                  focusNode: _audioFocus,
+                                  tooltip: l10n.audioTrack,
+                                  icon: const Icon(Icons.audiotrack_rounded),
+                                  onPressed: () => _openMenu(
+                                    _audioMenuLink,
+                                    _audioFocus,
+                                    l10n.audioTrack,
+                                    [
+                                      for (final t in _tracks.audio.where((t) => t.id != 'auto'))
+                                        PlayerMenuOption(
+                                          label: t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                                          selected: t == _track.audio,
+                                          onSelect: () => _player.setAudioTrack(t),
+                                        ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             if (_tracks.subtitle.length > 1)
-                              PlayerTrackButton<SubtitleTrack>(
-                                icon: Icons.subtitles_rounded,
-                                tooltip: l10n.subtitleTrack,
-                                tracks: _tracks.subtitle.where((t) => t.id != 'auto').toList(),
-                                current: _track.subtitle,
-                                label: (t) => t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
-                                onSelected: (t) {
-                                  _player.setSubtitleTrack(t);
-                                  _showOverlay();
-                                },
+                              CompositedTransformTarget(
+                                link: _subtitleMenuLink,
+                                child: IconButton(
+                                  focusNode: _subtitleFocus,
+                                  tooltip: l10n.subtitleTrack,
+                                  icon: const Icon(Icons.subtitles_rounded),
+                                  onPressed: () => _openMenu(
+                                    _subtitleMenuLink,
+                                    _subtitleFocus,
+                                    l10n.subtitleTrack,
+                                    [
+                                      for (final t in _tracks.subtitle.where((t) => t.id != 'auto'))
+                                        PlayerMenuOption(
+                                          label: t.id == 'no' ? l10n.off : [t.title, t.language, t.id].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
+                                          selected: t == _track.subtitle,
+                                          onSelect: () => _player.setSubtitleTrack(t),
+                                        ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             if (!_isLive)
-                              PopupMenuButton<double>(
-                                tooltip: l10n.playbackSpeed,
-                                onSelected: (r) => _player.setRate(r),
-                                itemBuilder: (_) => [for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]) PopupMenuItem(value: r, child: Text('${r}x'))],
-                                child: Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('${_rate}x', style: text.labelLarge)),
+                              CompositedTransformTarget(
+                                link: _speedMenuLink,
+                                child: TextButton(
+                                  focusNode: _speedFocus,
+                                  onPressed: () => _openMenu(
+                                    _speedMenuLink,
+                                    _speedFocus,
+                                    l10n.playbackSpeed,
+                                    [
+                                      for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+                                        PlayerMenuOption(label: '${r}x', selected: r == _rate, onSelect: () => _player.setRate(r)),
+                                    ],
+                                  ),
+                                  child: Text('${_rate}x', style: text.labelLarge),
+                                ),
                               ),
                             IconButton(
                               tooltip: l10n.videoFit,

@@ -34,6 +34,30 @@ void main() {
     expect(await db.watchIsFavorite('p1', ContentKind.live, 'c1').first, isFalse);
   });
 
+  // The category rail used to read getCategories() once and never again, so a re-import that wrote
+  // different categories never reached it until the app restarted (Sentry FLUTTER-2M/2H).
+  test('watchCategories sees a later import overwrite', () async {
+    await db.batch((b) => b.insertAll(db.categories, [
+          CategoriesCompanion.insert(playlistId: 'p1', externalId: 'c1', kind: ContentKind.live, name: 'News'),
+        ]));
+    expect((await db.watchCategories('p1', ContentKind.live).first).map((c) => c.name), ['News']);
+    await db.clearPlaylistContent('p1', kind: ContentKind.live);
+    await db.batch((b) => b.insertAll(db.categories, [
+          CategoriesCompanion.insert(playlistId: 'p1', externalId: 'c2', kind: ContentKind.live, name: 'Sport'),
+        ]));
+    expect((await db.watchCategories('p1', ContentKind.live).first).map((c) => c.name), ['Sport']);
+  });
+
+  // The movie detail screen's "Reprendre à …" button used to read getHistory() once, so it kept
+  // showing "Lire" (or a stale position) after a playback session until the screen was rebuilt.
+  test('watchHistoryEntry sees a later saveHistory for the same item', () async {
+    expect(await db.watchHistoryEntry('p1', ContentKind.vod, '42').first, null);
+    await db.saveHistory(playlistId: 'p1', kind: ContentKind.vod, itemId: '42', positionMs: 1000, durationMs: 5000);
+    expect((await db.watchHistoryEntry('p1', ContentKind.vod, '42').first)?.positionMs, 1000);
+    await db.saveHistory(playlistId: 'p1', kind: ContentKind.vod, itemId: '42', positionMs: 3000, durationMs: 5000);
+    expect((await db.watchHistoryEntry('p1', ContentKind.vod, '42').first)?.positionMs, 3000);
+  });
+
   test('deleting a playlist cascades to its content', () async {
     await db.into(db.channels).insert(ChannelsCompanion.insert(playlistId: 'p1', streamId: 's1', name: 'Ch', streamUrl: const Value('http://x/1.ts')));
     await db.saveHistory(playlistId: 'p1', kind: ContentKind.live, itemId: 's1');

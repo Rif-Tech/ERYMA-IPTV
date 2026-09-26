@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/responsive.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
 import '../../core/log/trace_tag.dart';
+import '../../core/sync/progress_sync.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../../widgets/format.dart';
@@ -17,10 +19,12 @@ final _movieProvider = FutureProvider.family<Movie?, String>((ref, id) {
   return ref.watch(databaseProvider).getMovie(p.id, id);
 });
 
-final _historyProvider = FutureProvider.family<HistoryData?, (ContentKind, String)>((ref, key) {
+/// Live, not a one-shot read: the "Resume at …" button used to keep showing "Play" after a
+/// playback session, until this screen was rebuilt from scratch.
+final _historyProvider = StreamProvider.family<HistoryData?, (ContentKind, String)>((ref, key) {
   final p = ref.watch(activePlaylistProvider);
-  if (p == null) return Future.value(null);
-  return ref.watch(databaseProvider).getHistory(p.id, key.$1, key.$2);
+  if (p == null) return Stream.value(null);
+  return ref.watch(databaseProvider).watchHistoryEntry(p.id, key.$1, key.$2);
 });
 
 class MovieDetailScreen extends ConsumerWidget {
@@ -41,6 +45,8 @@ class MovieDetailScreen extends ConsumerWidget {
           // Panel backdrops are often dead links; prefer TMDB art when the panel exposes an id.
           final tmdb = tmdbId == null ? null : ref.watch(tmdbArtProvider(('movie', tmdbId))).value;
           final history = ref.watch(_historyProvider((ContentKind.vod, streamId))).value;
+          // A finished movie has nothing to resume: playMovie(resume: true) starts it over anyway.
+          final resumable = history != null && history.positionMs > 0 && !ProgressSync.isCompleted(history.positionMs, history.durationMs);
           final playlist = ref.watch(activePlaylistProvider)!;
           final isFav = ref.watch(isFavoriteProvider((playlist.id, ContentKind.vod, streamId))).value ?? false;
 
@@ -70,11 +76,9 @@ class MovieDetailScreen extends ConsumerWidget {
                 autofocus: true,
                 icon: Icons.play_arrow_rounded,
                 onPressed: () => playMovie(context, ref, m),
-                label: history != null && history.positionMs > 0
-                    ? l10n.resumeFrom(formatDuration(Duration(milliseconds: history.positionMs)))
-                    : l10n.play,
+                label: resumable ? l10n.resumeFrom(formatDuration(Duration(milliseconds: history.positionMs))) : l10n.play,
               ),
-              if (history != null && history.positionMs > 0)
+              if (resumable)
                 PillButton(icon: Icons.replay_rounded, label: l10n.startOver, onPressed: () => playMovie(context, ref, m, resume: false)),
               PillButton(
                 icon: isFav ? Icons.check_rounded : Icons.add_rounded,
@@ -159,15 +163,22 @@ class DetailLayout extends StatelessWidget {
                     ),
                   ),
                 ),
-                Positioned(
-                  top: top + 8,
-                  left: 8,
-                  child: TraceTag('back', child: IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    style: IconButton.styleFrom(backgroundColor: const Color(0x66000000)),
-                  )),
-                ),
+                // TV: the remote's own Back key is the only way back everywhere in the app; an
+                // on-screen button there is redundant chrome, and this one in particular sat over
+                // the backdrop where focus made it hard to read (black icon on a translucent black
+                // circle — barely visible from the sofa).
+                Consumer(builder: (context, ref, _) {
+                  if (ref.watch(isTelevisionProvider)) return const SizedBox.shrink();
+                  return Positioned(
+                    top: top + 8,
+                    left: 8,
+                    child: TraceTag('back', child: IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      style: IconButton.styleFrom(backgroundColor: const Color(0x66000000)),
+                    )),
+                  );
+                }),
                 Positioned(
                   left: g,
                   right: g,

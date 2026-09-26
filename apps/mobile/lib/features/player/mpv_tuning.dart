@@ -33,12 +33,12 @@ Future<void> tuneMpv(NativePlayer native, {required bool isLive, required Decode
     // DNS (Réglages → Réseau / DNS) also applies to playlist streams, not just Dio/API calls.
     if (dnsProxyPort != null) native.setProperty('http-proxy', 'http://127.0.0.1:$dnsProxyPort'),
     // Live TS: start decoding as soon as the first packets arrive instead of probing 5 s of data.
+    // (Read-ahead itself is AdaptiveBuffer.prepare()'s job: demuxer-max-bytes/cache-secs, sized
+    // from the device's RAM — demuxer-readahead-secs has no effect once those are set.)
     if (isLive) ...[
       native.setProperty('demuxer-lavf-analyzeduration', '1'),
       native.setProperty('demuxer-lavf-probesize', '500000'),
-      native.setProperty('demuxer-readahead-secs', '3'),
-    ] else
-      native.setProperty('demuxer-readahead-secs', '20'),
+    ],
     if (path != DecodePath.direct && lowEnd) ...[
       // Mali-400/450 class GPUs: plain bilinear scaling, no dithering/gamma passes.
       native.setProperty('gpu-dumb-mode', 'yes'),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -9,6 +11,14 @@ import '../features/shell/app_shell.dart' show topLeftFocusable;
 
 /// Space kept above/below a section scrolled into view, so its title and focus ring breathe.
 const _revealMargin = 24.0;
+
+/// Target of a [revealSection] animation still in flight for a given [ScrollPosition], so a burst
+/// of calls at the same target (a loading row settling in below the focused one fires a
+/// [ScrollMetricsNotification] on every frame of its own layout, see [RowFocusChain]) neither
+/// re-logs nor restarts the ease-out curve on each one — which was visibly janky, and flooded
+/// Sentry Logs on a slow page load (Sentry: many identical "reveal row N after the page changed"
+/// lines a session).
+final _revealing = Expando<double>('reveal-target');
 
 /// Scrolls the page just enough for the whole section at [context] (title + cards) to be on
 /// screen: never centred, never scrolled when already fully visible, so Left/Right inside a row
@@ -23,9 +33,16 @@ void revealSection(BuildContext context, {String reason = 'section'}) {
   final position = scrollable.position;
   if (!position.hasPixels || !position.hasContentDimensions) return;
   final target = _minimalOffset(viewport, object, position, _revealMargin);
-  if (target == null) return;
+  if (target == null) {
+    _revealing[position] = null;
+    return;
+  }
+  if (_revealing[position] == target) return;
+  _revealing[position] = target;
   Telemetry.breadcrumb('scroll', 'reveal $reason: page ${position.pixels.round()} → ${target.round()}', data: {'route': RemoteKeyTracker.route});
-  position.animateTo(target, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic);
+  unawaited(position.animateTo(target, duration: const Duration(milliseconds: 220), curve: Curves.easeOutCubic).whenComplete(() {
+    if (_revealing[position] == target) _revealing[position] = null;
+  }));
 }
 
 /// Horizontal counterpart of [revealSection] for one card of a row: scrolls the row just enough

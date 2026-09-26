@@ -32,8 +32,11 @@ class PlaybackTelemetry {
       _player.stream.error.listen(_onError),
       _player.stream.log.listen(_onLog),
     ]);
-    _sampler = Timer.periodic(const Duration(seconds: 10), (_) => unawaited(_sample()));
+    _sampler = Timer.periodic(_calmInterval, (_) => unawaited(_sample()));
   }
+
+  static const _calmInterval = Duration(seconds: 30);
+  static const _watchfulInterval = Duration(seconds: 10);
 
   final Player _player;
   final String dnsMode;
@@ -83,6 +86,10 @@ class PlaybackTelemetry {
     _seekBuffers = 0;
     _stats = const {};
     _decoderErrorSeen = false;
+    // A new stream (zapped to, or a fallback restart) gets its own calm start regardless of how
+    // the previous one went.
+    _sampler?.cancel();
+    _sampler = Timer.periodic(_calmInterval, (_) => unawaited(_sample()));
     _proxyRequestsAtOpen = LocalDnsProxy.requests;
     final container = Telemetry.extensionOf(item.url);
     final uri = Uri.tryParse(item.url);
@@ -193,6 +200,10 @@ class PlaybackTelemetry {
     }
     _stalls++;
     _stallTime += stall.elapsed;
+    // Closer sampling once a stream has shown trouble: worth the extra mpv property reads for the
+    // rest of this stream, where the calm 30 s cadence would otherwise miss what led to the next one.
+    _sampler?.cancel();
+    _sampler = Timer.periodic(_watchfulInterval, (_) => unawaited(_sample()));
     if (stall.elapsed > const Duration(seconds: 2)) {
       Telemetry.breadcrumb('player', 'stall ${stall.elapsedMilliseconds} ms', data: {'stalls': _stalls}, level: SentryLevel.warning);
     }

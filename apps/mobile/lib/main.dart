@@ -29,9 +29,11 @@ Future<void> _bootstrap() async {
   HttpOverrides.global = AppHttpOverrides();
 
   final prefs = await SharedPreferences.getInstance();
+  Telemetry.init(prefs);
   final isTv = await isAndroidTelevision();
   final isEmulator = await isAndroidEmulator();
   final lowEnd = isTv || await isLowEndDevice();
+  final memory = await deviceMemory();
 
   // Decoded artwork is the main heap consumer; 2 GB boxes cannot afford Flutter's 100 MB default.
   PaintingBinding.instance.imageCache.maximumSizeBytes = (lowEnd ? 40 : 80) << 20;
@@ -41,7 +43,7 @@ Future<void> _bootstrap() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
-  Telemetry.tags({'is_tv': isTv, 'low_end': lowEnd, 'emulator': isEmulator});
+  Telemetry.tags({'is_tv': isTv, 'low_end': lowEnd, 'emulator': isEmulator, 'ram_mb': memory.totalMb});
   if (Telemetry.enabled) RemoteKeyTracker.install();
 
   final app = ProviderScope(
@@ -52,6 +54,7 @@ Future<void> _bootstrap() async {
       isTelevisionProvider.overrideWithValue(isTv),
       isEmulatorProvider.overrideWithValue(isEmulator),
       isLowEndDeviceProvider.overrideWithValue(lowEnd),
+      deviceMemoryProvider.overrideWithValue(memory),
     ],
     child: const MultIptvApp(),
   );

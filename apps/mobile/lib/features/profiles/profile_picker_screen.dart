@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/api/portal_api.dart';
@@ -35,7 +36,8 @@ class ProfilePickerScreen extends ConsumerWidget {
     final profiles = ref.watch(profilesProvider);
     final activeId = ref.watch(activeProfileProvider)?.id;
     final syncing = ref.watch(deviceSessionProvider).isLoading;
-    final canGoBack = activeId != null && context.canPop();
+    // TV: the remote's own Back key is the only way back everywhere in the app.
+    final canGoBack = activeId != null && context.canPop() && !ref.watch(isTelevisionProvider);
 
     return Scaffold(
       appBar: AppBar(

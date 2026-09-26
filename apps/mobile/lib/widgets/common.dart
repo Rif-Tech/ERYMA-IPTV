@@ -5,6 +5,7 @@ export 'async_states.dart';
 export 'badges.dart';
 export 'channel_tile.dart';
 export 'content_cards.dart';
+export 'dpad_text_field.dart';
 export 'focusable_card.dart';
 export 'glass_panel.dart';
 export 'pill_button.dart';

@@ -284,6 +284,12 @@ abstract class AppLocalizations {
   /// **'Nothing in favorites yet.'**
   String get noFavorites;
 
+  /// No description provided for @noFavoriteChannels.
+  ///
+  /// In en, this message translates to:
+  /// **'No favourite channels yet. Hold OK on a channel, or press ★ in the player.'**
+  String get noFavoriteChannels;
+
   /// No description provided for @noRecent.
   ///
   /// In en, this message translates to:
@@ -331,6 +337,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Resume from {time}'**
   String resumeFrom(String time);
+
+  /// No description provided for @resumeEpisodeAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume · S{season} E{episode} · {time}'**
+  String resumeEpisodeAt(int season, int episode, String time);
 
   /// No description provided for @startOver.
   ///
@@ -1373,8 +1385,14 @@ abstract class AppLocalizations {
   /// No description provided for @measureBuffer.
   ///
   /// In en, this message translates to:
-  /// **'Buffer · bitrate'**
+  /// **'Buffer (ahead / cap · resume)'**
   String get measureBuffer;
+
+  /// No description provided for @measureNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Bitrate (received / stream)'**
+  String get measureNetwork;
 
   /// No description provided for @qualityNotSupportedLowEnd.
   ///

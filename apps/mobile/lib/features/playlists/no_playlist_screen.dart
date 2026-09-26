@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/config.dart';
+import '../../app/responsive.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
@@ -58,7 +59,10 @@ class _NoPlaylistScreenState extends ConsumerState<NoPlaylistScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(blocked ? l10n.activationRequired : (hasVisible ? l10n.addPlaylistTitle : l10n.noPlaylistTitle)),
-        leading: hasVisible && context.canPop() ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()) : null,
+        // TV: the remote's own Back key is the only way back everywhere in the app.
+        leading: hasVisible && context.canPop() && !ref.watch(isTelevisionProvider)
+            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop())
+            : null,
         automaticallyImplyLeading: false,
         actions: [
           IconButton(tooltip: l10n.settings, icon: const Icon(Icons.settings), onPressed: () => context.push(Routes.settings)),

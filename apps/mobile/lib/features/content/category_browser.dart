@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/responsive.dart';
 import '../../app/theme.dart';
 import '../../core/db/database.dart';
+import '../../core/log/remote_key_tracker.dart';
+import '../../core/log/telemetry.dart';
 import '../../core/log/trace_tag.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../playlists/playlists_provider.dart';
@@ -23,12 +27,24 @@ class CategoryEntry {
   final IconData? icon;
 }
 
+/// Last category count seen per kind, so the rail only logs when that count actually changes
+/// (once per import, not once per rebuild).
+final _lastCategoryCount = <ContentKind, int>{};
+
 /// Builds the category list for a content kind, including the pseudo categories.
 final categoryEntriesProvider = FutureProvider.family<List<CategoryEntry>, ContentKind>((ref, kind) async {
   final playlist = ref.watch(activePlaylistProvider);
   if (playlist == null) return const [];
   final cats = await ref.watch(categoriesProvider(CategoryQuery(playlist.id, kind)).future);
   final groups = kind == ContentKind.live ? (ref.watch(channelGroupsProvider(playlist.id)).value ?? const []) : const <ChannelGroup>[];
+  final last = _lastCategoryCount[kind];
+  if (last != cats.length) {
+    _lastCategoryCount[kind] = cats.length;
+    Telemetry.breadcrumb('categories', 'categories ${kind.name}: ${last ?? '?'} → ${cats.length}');
+  }
+  // The rail then only offers Tout/Favoris/Vus récemment (no provider category, no group): worth a
+  // look once a day if this kind actually has content (Sentry FLUTTER-2M/2H, "only Tout").
+  if (cats.isEmpty && groups.isEmpty) unawaited(_reportStuckRail(ref, playlist.id, kind));
   return [
     const CategoryEntry(SpecialCategory.all, '', icon: Icons.apps),
     const CategoryEntry(SpecialCategory.favorites, '', icon: Icons.star),
@@ -37,6 +53,34 @@ final categoryEntriesProvider = FutureProvider.family<List<CategoryEntry>, Conte
     for (final c in cats) CategoryEntry(c.externalId, c.name),
   ];
 });
+
+Future<void> _reportStuckRail(Ref ref, String playlistId, ContentKind kind) async {
+  final db = ref.read(databaseProvider);
+  final itemCount = await switch (kind) {
+    ContentKind.live => db.countChannels(playlistId),
+    ContentKind.vod => db.countMovies(playlistId),
+    ContentKind.series => db.countSeries(playlistId),
+  };
+  if (itemCount == 0) return; // genuinely nothing imported yet: not worth a report
+  final hidden = ref.read(hiddenCategoriesProvider(CategoryQuery(playlistId, kind))).value?.length;
+  final importState = ref.read(playlistImportProvider);
+  final playlist = ref.read(activePlaylistProvider);
+  final syncedAgo = playlist?.lastSyncedAt == null ? null : DateTime.now().difference(playlist!.lastSyncedAt!).inMinutes;
+  unawaited(Telemetry.capture(
+    'categories',
+    'Category rail stuck on the special entries only (${kind.name}) with $itemCount items in the catalogue',
+    data: {
+      'kind': kind.name,
+      'item_count': itemCount,
+      'hidden_categories': hidden,
+      'import_running': importState.isRunning,
+      'import_stage': importState.progress?.stage.name,
+      'last_synced_min_ago': syncedAgo,
+    },
+    fingerprint: ['category-rail-stuck', kind.name],
+    throttle: const Duration(days: 1),
+  ));
+}
 
 String categoryLabel(AppLocalizations l10n, CategoryEntry e) => switch (e.id) {
       SpecialCategory.all => l10n.all,
@@ -99,7 +143,10 @@ class _BrowserScaffoldState extends State<BrowserScaffold> {
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.arrowRight && _pane.hasFocus) {
-      enter(_content);
+      // `enter` returning false here (nothing focusable in the content scope) is what a D-pad
+      // trace otherwise just shows as "Right does nothing": the category is empty or its listing
+      // hasn't loaded yet.
+      if (!enter(_content)) RemoteKeyTracker.note('categories: → content empty or still loading (${widget.kind.name})');
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;

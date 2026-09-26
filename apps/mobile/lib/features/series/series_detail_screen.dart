@@ -97,7 +97,9 @@ class SeriesDetailScreen extends ConsumerWidget {
                   autofocus: true,
                   icon: Icons.play_arrow_rounded,
                   onPressed: () => playEpisodes(context, ref, eps, resumeIndex >= 0 ? resumeIndex : 0, seriesName: s.name),
-                  label: resumeEp != null ? '${l10n.resume} · S${resumeEp.season} E${resumeEp.episodeNum}' : l10n.play,
+                  label: resumeEp != null
+                      ? l10n.resumeEpisodeAt(resumeEp.season, resumeEp.episodeNum, formatDuration(Duration(milliseconds: last!.positionMs)))
+                      : l10n.play,
                 ),
               PillButton(
                 icon: isFav ? Icons.check_rounded : Icons.add_rounded,
@@ -166,7 +168,12 @@ class SeriesDetailScreen extends ConsumerWidget {
   }
 }
 
-/// Horizontal 16:9 episode cards (tablet/TV).
+/// Horizontal 16:9 episode cards (tablet/TV). [ShelfRow] (not the plain FocusTraversalGroup +
+/// ListView this used to build by hand) is what reveals the whole section — title, season chips
+/// and row — on focus, with the margin a focused card's zoom needs: default directional traversal
+/// only ever revealed the card's own unscaled box, clipping it at the bottom of the screen (Sentry:
+/// the focused episode thumbnail cut off). It also stops Left/Right at the row's ends instead of
+/// leaving the page (Sentry FLUTTER-2J).
 class _EpisodeShelf extends StatelessWidget {
   const _EpisodeShelf({required this.episodes, required this.history, required this.onTap, this.fallbackImage});
   final List<Episode> episodes;
@@ -178,39 +185,30 @@ class _EpisodeShelf extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     const w = 300.0;
-    const gap = 16.0;
-    return SizedBox(
-      height: w * 9 / 16 + 24,
-      child: FocusTraversalGroup(
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          clipBehavior: Clip.none,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          itemCount: episodes.length,
-          itemExtent: w + gap,
-          addAutomaticKeepAlives: false,
-          itemBuilder: (context, i) {
-            final e = episodes[i];
-            final h = history[e.episodeId];
-            final progress = h != null && h.durationMs > 0 ? h.positionMs / h.durationMs : null;
-            return Padding(
-              padding: const EdgeInsets.only(right: gap),
-              child: LandscapeCard(
-                title: e.title,
-                overline: l10n.episodeNumber(e.episodeNum),
-                subtitle: [
-                  if (e.durationSecs != null) formatDuration(Duration(seconds: e.durationSecs!)),
-                  if (e.resolution != null) e.resolution!,
-                ].join('  ·  '),
-                imageUrl: AppImage.isValid(e.poster) ? e.poster : fallbackImage,
-                icon: Icons.play_circle_outline_rounded,
-                progress: progress,
-                onTap: () => onTap(e),
-              ),
-            );
-          },
-        ),
-      ),
+    // No horizontal padding of its own: DetailLayout's own SliverPadding already applies the page
+    // gutter around this whole section.
+    return ShelfRow(
+      itemCount: episodes.length,
+      itemWidth: w,
+      height: w * 9 / 16,
+      padding: EdgeInsets.zero,
+      itemBuilder: (context, i) {
+        final e = episodes[i];
+        final h = history[e.episodeId];
+        final progress = h != null && h.durationMs > 0 ? h.positionMs / h.durationMs : null;
+        return LandscapeCard(
+          title: e.title,
+          overline: l10n.episodeNumber(e.episodeNum),
+          subtitle: [
+            if (e.durationSecs != null) formatDuration(Duration(seconds: e.durationSecs!)),
+            if (e.resolution != null) e.resolution!,
+          ].join('  ·  '),
+          imageUrl: AppImage.isValid(e.poster) ? e.poster : fallbackImage,
+          icon: Icons.play_circle_outline_rounded,
+          progress: progress,
+          onTap: () => onTap(e),
+        );
+      },
     );
   }
 }

@@ -377,10 +377,15 @@ class AppDatabase extends _$AppDatabase {
   Future<void> deletePlaylist(String id) => (delete(playlists)..where((p) => p.id.equals(id))).go();
 
   /// Removes imported content of a playlist (one [kind] or all), keeping user data (favorites, history…).
-  Future<void> clearPlaylistContent(String playlistId, {ContentKind? kind}) => transaction(() async {
-        final cats = delete(categories)..where((t) => t.playlistId.equals(playlistId));
-        if (kind != null) cats.where((t) => t.kind.equalsValue(kind));
-        await cats.go();
+  /// [clearCategories] is false when a panel answered this import's categories call empty while
+  /// still listing items: the existing categories (from the last import that did list them) are
+  /// kept instead of being wiped down to nothing (Sentry FLUTTER-2M/2H).
+  Future<void> clearPlaylistContent(String playlistId, {ContentKind? kind, bool clearCategories = true}) => transaction(() async {
+        if (clearCategories) {
+          final cats = delete(categories)..where((t) => t.playlistId.equals(playlistId));
+          if (kind != null) cats.where((t) => t.kind.equalsValue(kind));
+          await cats.go();
+        }
         if (kind == null || kind == ContentKind.live) {
           await (delete(channels)..where((t) => t.playlistId.equals(playlistId))).go();
         }
@@ -403,6 +408,15 @@ class AppDatabase extends _$AppDatabase {
             ..where((c) => c.playlistId.equals(playlistId) & c.kind.equalsValue(kind))
             ..orderBy([(c) => OrderingTerm.asc(c.position)]))
           .get();
+
+  /// Live: the category rail used to read this once and never again, so it stayed on whatever an
+  /// import had written first — often nothing yet — until the app restarted (Sentry FLUTTER-2M/2H:
+  /// the rail showing only "Tout" after a re-import).
+  Stream<List<ContentCategory>> watchCategories(String playlistId, ContentKind kind) =>
+      (select(categories)
+            ..where((c) => c.playlistId.equals(playlistId) & c.kind.equalsValue(kind))
+            ..orderBy([(c) => OrderingTerm.asc(c.position)]))
+          .watch();
 
   Future<List<Channel>> getChannels(String playlistId, {String? categoryId}) {
     final q = select(channels)..where((c) => c.playlistId.equals(playlistId));
@@ -704,6 +718,13 @@ class AppDatabase extends _$AppDatabase {
       (select(history)
             ..where((h) => h.profileId.equals(profileId) & h.playlistId.equals(playlistId) & h.kind.equalsValue(kind) & h.itemId.equals(itemId)))
           .getSingleOrNull();
+
+  /// Live: the movie detail screen's "Resume at …" button used to read this once and never again,
+  /// so it stayed on "Play" after a playback session until the screen was rebuilt from scratch.
+  Stream<HistoryData?> watchHistoryEntry(String playlistId, ContentKind kind, String itemId) =>
+      (select(history)
+            ..where((h) => h.profileId.equals(profileId) & h.playlistId.equals(playlistId) & h.kind.equalsValue(kind) & h.itemId.equals(itemId)))
+          .watchSingleOrNull();
 
   /// Upserts a history row for the current profile. [watchedAt] defaults to now; [synced] marks
   /// rows that came from the server (nothing to upload).

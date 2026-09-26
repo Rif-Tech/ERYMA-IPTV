@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/responsive.dart';
 import '../../core/db/database.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../widgets/common.dart';
 import '../content/content_providers.dart';
 import '../playlists/playlists_provider.dart';
+import '../shell/app_shell.dart' show topLeftFocusable;
 
 /// "My groups": user-defined channel lists.
 class GroupsScreen extends ConsumerWidget {
@@ -14,13 +16,15 @@ class GroupsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
+    // TV: the remote's own Back key is the only way back everywhere in the app.
+    final isTv = ref.watch(isTelevisionProvider);
     final playlist = ref.watch(activePlaylistProvider);
-    if (playlist == null) return Scaffold(appBar: AppBar(title: Text(l10n.myGroups)));
+    if (playlist == null) return Scaffold(appBar: AppBar(title: Text(l10n.myGroups), automaticallyImplyLeading: !isTv));
     final groups = ref.watch(channelGroupsProvider(playlist.id)).value ?? const [];
     final db = ref.read(databaseProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.myGroups)),
+      appBar: AppBar(title: Text(l10n.myGroups), automaticallyImplyLeading: !isTv),
       floatingActionButton: FloatingActionButton.extended(
         autofocus: groups.isEmpty,
         onPressed: () async {
@@ -83,6 +87,20 @@ class GroupsScreen extends ConsumerWidget {
     if (!context.mounted) return;
     final selected = Set<String>.of(current);
     var filter = '';
+    final listScope = FocusScopeNode(debugLabel: 'group-channels');
+    // Down from the search field used to do nothing (a plain TextField swallows vertical arrows as
+    // a cursor move), and once its keyboard closed nothing was left focused at all — the field is
+    // now the only thing reachable, stuck (this dialog had no bridge back to the field like every
+    // page does). DpadTextField fixes all three at once.
+    final searchFocus = FocusNode(
+      debugLabel: 'group-search',
+      onKeyEvent: DpadTextField.keyHandler(onDown: () {
+        final target = topLeftFocusable(listScope);
+        if (target == null) return false;
+        target.requestFocus();
+        return true;
+      }),
+    );
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -96,24 +114,30 @@ class GroupsScreen extends ConsumerWidget {
               height: 500,
               child: Column(
                 children: [
-                  TextField(
+                  DpadTextField(
+                    focusNode: searchFocus,
                     autofocus: true,
                     decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: l10n.search),
                     onChanged: (v) => setState(() => filter = v),
                   ),
                   const SizedBox(height: 8),
                   Expanded(
-                    child: ListView.builder(
-                      itemCount: visible.length,
-                      itemBuilder: (context, i) {
-                        final c = visible[i];
-                        return CheckboxListTile(
-                          dense: true,
-                          value: selected.contains(c.streamId),
-                          title: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          onChanged: (v) => setState(() => v == true ? selected.add(c.streamId) : selected.remove(c.streamId)),
-                        );
-                      },
+                    child: FocusScope(
+                      node: listScope,
+                      child: FocusTraversalGroup(
+                        child: ListView.builder(
+                          itemCount: visible.length,
+                          itemBuilder: (context, i) {
+                            final c = visible[i];
+                            return CheckboxListTile(
+                              dense: true,
+                              value: selected.contains(c.streamId),
+                              title: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              onChanged: (v) => setState(() => v == true ? selected.add(c.streamId) : selected.remove(c.streamId)),
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -127,6 +151,8 @@ class GroupsScreen extends ConsumerWidget {
         },
       ),
     );
+    searchFocus.dispose();
+    listScope.dispose();
     if (result == true) {
       // Keep the existing order, append new picks.
       final ordered = [...current.where(selected.contains), ...selected.where((id) => !current.contains(id))];

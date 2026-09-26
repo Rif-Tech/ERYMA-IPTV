@@ -91,4 +91,47 @@ void main() {
     expect(focused(), 9);
     expectShownInFull(9);
   });
+
+  // Left from the first card (Right from the last) used to fall through to the nearest focusable
+  // *outside* the row — a page's back button, on the series detail screen (Sentry FLUTTER-2J).
+  testWidgets('Left on the first card and Right on the last stay inside the row', (tester) async {
+    final outside = FocusNode(debugLabel: 'outside');
+    addTearDown(outside.dispose);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [performanceModeProvider.overrideWithValue(true)],
+      child: MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            TextButton(focusNode: outside, onPressed: () {}, child: const Text('back')),
+            Expanded(
+              child: Shelf(
+                title: 'Row',
+                itemCount: nodes.length,
+                itemWidth: 170,
+                height: 100,
+                padding: const EdgeInsets.symmetric(horizontal: gutter),
+                itemBuilder: (_, i) => TextButton(focusNode: nodes[i], onPressed: () {}, child: Text('c$i')),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    ));
+    nodes[0].requestFocus();
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(focused(), 0, reason: 'Left on the first card must not reach the back button outside the row');
+
+    // Walk to the last card the same way every other test here does: requestFocus() alone cannot
+    // reach an item the ListView has not built yet.
+    for (var i = 1; i < nodes.length; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+    }
+    expect(focused(), nodes.length - 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(focused(), nodes.length - 1, reason: 'Right on the last card must stay put');
+  });
 }

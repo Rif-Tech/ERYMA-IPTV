@@ -36,8 +36,14 @@ try {
   if ($PortalUrl -match 'localhost|127\.0\.0\.1') { throw "PortalUrl '$PortalUrl' is not reachable from a TV box; pass -PortalUrl with the LAN/public address." }
   Write-Host "PORTAL_URL fallback: $PortalUrl"
   if (-not $SentryDsn) { Write-Warning 'No Sentry DSN (-SentryDsn or $env:SENTRY_DSN): this build will not report crashes.' }
+  # The build number (pubspec.yaml's build name, 1.0.0, stays as is): every APK built this way gets
+  # its own number, so Sentry's `release` tag (1.0.0+<n>) tells testers' builds apart instead of
+  # every one reporting the same 1.0.0+1001 regardless of what was actually installed.
+  $buildNumber = (git -C $root rev-list --count HEAD).Trim()
+  Write-Host "Build number: $buildNumber (commit count)"
   $common = @(
     '--release', '--obfuscate', "--split-debug-info=$app\build\symbols", '--tree-shake-icons',
+    "--build-number=$buildNumber",
     "--dart-define=PORTAL_URL=$PortalUrl", "--dart-define=SENTRY_DSN=$SentryDsn",
     "--dart-define=SENTRY_SCREENSHOTS=$(if ($SentryScreenshots) { 'true' } else { 'false' })"
   )
@@ -58,6 +64,12 @@ try {
   # Non-fatal: the APKs above are already built and copied to dist\ by this point, and a symbol
   # upload failure (wrong org/project, network) must not make a good release look like a failed one.
   if ($env:SENTRY_AUTH_TOKEN -or (Test-Path "$app\sentry.properties")) {
+    # sentry_dart_plugin reads pubspec.yaml directly for its release name, unaware of the
+    # --build-number above: without this override every upload keeps naming itself
+    # multiptv@1.0.0+1, drifting further from the number actually running on a tester's box.
+    # (The split-per-ABI versionCode Android reports at runtime is this number × 1000/2000/4000
+    # plus the ABI offset, not this number itself — an exact per-ABI match isn't attempted here.)
+    $env:SENTRY_RELEASE = "multiptv@1.0.0+$buildNumber"
     dart run sentry_dart_plugin
     if ($LASTEXITCODE -ne 0) { Write-Warning 'sentry_dart_plugin upload failed (see output above) — the APKs are still fine, only crash stack traces will show raw addresses.' }
   } else {

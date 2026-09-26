@@ -37,6 +37,9 @@ class MeasureSnapshot {
     this.avsyncMs,
     this.cacheSeconds,
     this.videoKbps,
+    this.throughputKbps,
+    this.pauseWait,
+    this.cacheMaxMb,
   });
 
   final int seconds;
@@ -64,6 +67,13 @@ class MeasureSnapshot {
   final double? avsyncMs;
   final double? cacheSeconds;
   final int? videoKbps;
+
+  /// Rate the network delivered (mpv `cache-speed`), to compare with [videoKbps].
+  final int? throughputKbps;
+
+  /// Seconds mpv buffers before resuming after a stall (raised by AdaptiveBuffer).
+  final double? pauseWait;
+  final int? cacheMaxMb;
 }
 
 /// Player measurements started from the controls ("Mesures"): every second, mpv's playback
@@ -95,6 +105,9 @@ class PlaybackMeasure {
     'current-vo',
     'estimated-display-fps',
     'vsync-jitter',
+    'cache-speed',
+    'cache-pause-wait',
+    'demuxer-max-bytes',
   ];
   static const _format = [
     'video-format',
@@ -128,6 +141,9 @@ class PlaybackMeasure {
     'avsync_ms',
     'cache_s',
     'video_kbps',
+    'throughput_kbps',
+    'pause_wait_s',
+    'cache_max_mb',
     'stalled',
     'display_hz',
     'raster_max_ms',
@@ -242,6 +258,9 @@ class PlaybackMeasure {
         'avsync_ms': _ms(gauges['avsync']),
         'cache_s': _double(gauges['demuxer-cache-duration']),
         'video_kbps': _kbps(gauges['video-bitrate']),
+        'throughput_kbps': _bytesKbps(gauges['cache-speed']),
+        'pause_wait_s': _double(gauges['cache-pause-wait']),
+        'cache_max_mb': _mb(gauges['demuxer-max-bytes']),
         'stalled': gauges['paused-for-cache'] == 'yes',
         'display_hz': hz,
         'raster_max_ms': double.parse(rasterMax.toStringAsFixed(1)),
@@ -275,6 +294,9 @@ class PlaybackMeasure {
         avsyncMs: _ms(gauges['avsync']),
         cacheSeconds: _double(gauges['demuxer-cache-duration']),
         videoKbps: _kbps(gauges['video-bitrate']),
+        throughputKbps: _bytesKbps(gauges['cache-speed']),
+        pauseWait: _double(gauges['cache-pause-wait']),
+        cacheMaxMb: _mb(gauges['demuxer-max-bytes']),
       );
       if (elapsed >= _maxDuration) unawaited(stop(reason: 'time limit'));
     } finally {
@@ -339,6 +361,10 @@ class PlaybackMeasure {
       'cache_min_s': _rows.map((r) => r['cache_s']).whereType<num>().fold<num?>(null, (a, b) => a == null || b < a ? b : a),
       'stalled_s': _rows.where((r) => r['stalled'] == true).length,
       'video_kbps_avg': average('video_kbps'),
+      'throughput_kbps_avg': average('throughput_kbps'),
+      'pause_wait_s_max': _rows.map((r) => r['pause_wait_s']).whereType<num>().fold<num?>(null, (a, b) => a == null || b > a ? b : a),
+      'cache_max_mb': _rows.isEmpty ? null : _rows.last['cache_max_mb'],
+      'cache_max_s': _rows.map((r) => r['cache_s']).whereType<num>().fold<num?>(null, (a, b) => a == null || b > a ? b : a),
       'raster_max_ms': _rows.map((r) => r['raster_max_ms'] as num? ?? 0).fold<num>(0, (a, b) => a > b ? a : b),
     };
     final csv = StringBuffer()..writeln(_csvColumns.join(','));
@@ -357,6 +383,7 @@ class PlaybackMeasure {
       data: summary,
       fingerprint: ['player-measurement', '${facts['kind']}', '${facts['decode_path']}', '${facts['video_output']}'],
       throttle: Duration.zero,
+      measurement: true,
       attachments: [SentryAttachment.fromUint8List(Uint8List.fromList(utf8.encode(csv.toString())), 'measure.csv', contentType: 'text/csv')],
     );
   }
@@ -402,6 +429,16 @@ class PlaybackMeasure {
   static int? _kbps(String? bitsPerSecond) {
     final d = double.tryParse(bitsPerSecond ?? '');
     return d == null ? null : (d / 1000).round();
+  }
+
+  static int? _bytesKbps(String? bytesPerSecond) {
+    final d = double.tryParse(bytesPerSecond ?? '');
+    return d == null ? null : (d * 8 / 1000).round();
+  }
+
+  static int? _mb(String? bytes) {
+    final d = double.tryParse(bytes ?? '');
+    return d == null ? null : (d / (1024 * 1024)).round();
   }
 
   static bool? _flag(String? v) => v == null ? null : v == 'yes';
