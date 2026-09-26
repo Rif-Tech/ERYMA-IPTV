@@ -78,6 +78,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   double _rate = 1.0;
   int? _videoWidth;
   int? _videoHeight;
+  // Native output's first-frame reveal (see _overlay's declaration) must fire once per player
+  // screen, not once per stream: _open() resets _videoWidth on every channel change, including a
+  // silent zap commit (_goTo(overlay: false)), which without this flag reopened the overlay after
+  // every zap and let it steal the next Left/Right press (Flutter focus traversal instead of _zap).
+  bool _nativeFirstFrameRevealed = false;
   Timer? _hideTimer;
   Timer? _saveTimer;
   int? _pendingStartMs;
@@ -194,8 +199,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       _player.stream.width.listen((w) {
         safeSet(() => _videoWidth = w);
         // Native output only ever starts with the overlay hidden (see _overlay's declaration): the
-        // first frame is what reveals it.
-        if ((w ?? 0) > 0 && _nativeOutput && !_overlay) _showOverlay();
+        // first frame is what reveals it. Once only (_nativeFirstFrameRevealed): every later stream
+        // (channel switch, zap) goes through this same listener and must not re-reveal it.
+        if ((w ?? 0) > 0 && _nativeOutput && !_nativeFirstFrameRevealed && !_overlay) {
+          _nativeFirstFrameRevealed = true;
+          _showOverlay();
+        }
         if ((w ?? 0) > 0 && _frameRateItem != _index) {
           _frameRateItem = _index;
           // container-fps settles once the first frames are out.
