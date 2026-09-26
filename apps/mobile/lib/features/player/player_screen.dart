@@ -87,6 +87,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
   Timer? _saveTimer;
   int? _pendingStartMs;
 
+  // A live stream can play video with no real audio track at all (Sentry: a silent channel,
+  // `tracks_audio` reduced to the synthetic auto/no entries) — the fast demuxer probing used for a
+  // quick channel zap (tuneMpv's isLive branch) can miss a TS multiplex's audio PID. Checked once
+  // per channel, a few seconds after its first frame; see _maybeRetryForMissingAudio.
+  Timer? _audioProbeTimer;
+  int? _audioCheckedItem;
+  bool _audioRetriedForItem = false;
+
   // High-frequency values live in notifiers so only the widgets showing them repaint. Buffering
   // flips many times a minute on a weak network; a setState there rebuilt the whole overlay.
   final _position = ValueNotifier(Duration.zero);
@@ -216,6 +224,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
             if (mounted && !_measure.active) unawaited(_measure.start());
           });
         }
+        if ((w ?? 0) > 0 && _isLive && _audioCheckedItem != _index) {
+          _audioCheckedItem = _index;
+          _audioProbeTimer?.cancel();
+          _audioProbeTimer = Timer(const Duration(seconds: 3), () => unawaited(_maybeRetryForMissingAudio()));
+        }
       }),
       _player.stream.height.listen((h) => safeSet(() => _videoHeight = h)),
       _player.stream.tracks.listen((t) => safeSet(() => _tracks = t)),
@@ -260,6 +273,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _watchdog?.cancel();
     _decoderCheck?.cancel();
     _transientCheck?.cancel();
+    _audioProbeTimer?.cancel();
     _progressFocus.dispose();
     _keyFocus.dispose();
     _playFocus.dispose();
@@ -329,6 +343,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     _decoderCheck?.cancel();
     _decoderCheck = null;
     _transientCheck?.cancel();
+    _audioProbeTimer?.cancel();
     final start = _pendingStartMs;
     _pendingStartMs = null;
     // A measurement covers one stream: the one being left is sent, the next one is measured from
@@ -634,6 +649,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
     );
   }
 
+  /// A live channel can decode video with no real audio track at all: `tuneMpv`'s fast probing for
+  /// a quick zap (`demuxer-lavf-analyzeduration`/`-probesize` cut down) can miss a TS multiplex's
+  /// audio PID on some streams. Checked once, a few seconds after the first frame; if no real audio
+  /// track ever showed up, reopen this one stream with fuller probing, then restore the fast
+  /// settings so the next zap is not slowed down for every channel because of this one.
+  Future<void> _maybeRetryForMissingAudio() async {
+    if (!mounted || !_isLive || _audioRetriedForItem) return;
+    final realAudioTracks = _tracks.audio.where((t) => t.id != 'auto' && t.id != 'no').length;
+    if (realAudioTracks > 0) return;
+    final native = _player.platform;
+    if (native is! NativePlayer) return;
+    _audioRetriedForItem = true;
+    ref.read(appLoggerProvider).warn('player', 'no real audio track 3s after first frame, reopening with fuller probing', context: {'kind': _item.kind.name});
+    await native.setProperty('demuxer-lavf-analyzeduration', '5');
+    await native.setProperty('demuxer-lavf-probesize', '5000000');
+    await _open();
+    if (!mounted) return;
+    await native.setProperty('demuxer-lavf-analyzeduration', '1');
+    await native.setProperty('demuxer-lavf-probesize', '500000');
+  }
+
   /// Applies [tuneMpv] to the native player; [_open] waits for [_tuned].
   void _tunePlayer() {
     final native = _player.platform;
@@ -687,6 +723,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> with WidgetsBinding
       _index = index;
       _showList = false;
     });
+    _audioRetriedForItem = false;
     _open();
     if (overlay) _showOverlay();
   }
